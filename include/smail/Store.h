@@ -18,10 +18,11 @@ public:
     void checkpoint(const QString &key, const QString &value);
     Record record(const QString &id);
     void put(const Record &record);
+    QString reserveSinglePath(const QString &messageId, const QString &root, const QString &name);
     QStringList history(int limit = 100);
 private:
     QString connection;
     QSqlDatabase db;
 };
-QStringList saveAttachments(const QString &root, const QString &messageId, const QVector<Attachment> &attachments);
+QStringList saveAttachments(const QString &root, const QString &messageId, const QVector<Attachment> &attachments, Store &store);
 }

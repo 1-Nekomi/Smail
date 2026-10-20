@@ -5,6 +5,7 @@
 #include <QtTest>
 #include <QTemporaryDir>
 #include <QFile>
+#include <QDir>
 
 using namespace smail;
 class CoreTest : public QObject {
@@ -39,11 +40,13 @@ private slots:
     }
     void storageAndRecovery() {
         QTemporaryDir temp;
-        QStringList paths = saveAttachments(temp.path(),"message",{{"../a.pdf","application/pdf","abc"},{"../a.pdf","application/pdf","def"}});
+        Store files(temp.path()+"/files.sqlite");
+        QVector<Attachment> attachments = {{"../a.pdf","application/pdf","abc"},{"../a.pdf","application/pdf","def"}};
+        QStringList paths = saveAttachments(temp.path(),"message",attachments,files);
         QCOMPARE(paths.size(),2); QVERIFY(paths[0] != paths[1]);
-        QCOMPARE(saveAttachments(temp.path(),"message",{{"../a.pdf","application/pdf","abc"}}).first(),paths.first());
+        QCOMPARE(saveAttachments(temp.path(),"message",attachments,files),paths);
         QFile f(paths.first()); QVERIFY(f.open(QIODevice::ReadOnly)); QCOMPARE(f.readAll(),QByteArray("abc"));
-        QVERIFY_EXCEPTION_THROWN(saveAttachments(temp.path(),"../escape",{}),std::runtime_error);
+        QVERIFY_EXCEPTION_THROWN(saveAttachments(temp.path(),"../escape",{},files),std::runtime_error);
         {
             Store store(temp.path()+"/test.sqlite"); QVERIFY(store.checkpoint("key").isNull()); store.checkpoint("key","0");
             Record r; r.id="one"; r.status="saved"; r.files=paths; r.replyState="attempted"; store.put(r);
@@ -51,6 +54,28 @@ private slots:
         Store store(temp.path()+"/test.sqlite"); QCOMPARE(store.checkpoint("key"),QString("0"));
         auto r=store.record("one"); QVERIFY(r.exists); QVERIFY(!r.done); QCOMPARE(r.files,paths);
         QCOMPARE(r.replyState,QString("attempted")); r.done=true; store.put(r); QVERIFY(store.record("one").done);
+    }
+    void singleAttachmentFlatAndRetry() {
+        QTemporaryDir temp;
+        QString output = temp.path()+"/downloads";
+        QString first;
+        {
+            Store store(temp.path()+"/state.sqlite");
+            first = saveAttachments(output,"first",{{"报告.pdf","application/pdf","one"}},store).first();
+            QCOMPARE(first,QDir(output).absoluteFilePath("报告.pdf"));
+            QCOMPARE(saveAttachments(output,"second",{{"报告.pdf","application/pdf","two"}},store).first(),
+                     QDir(output).absoluteFilePath("报告 (2).pdf"));
+            QVERIFY(QDir(output).entryList(QDir::Dirs | QDir::NoDotAndDotDot).isEmpty());
+        }
+        Store reopened(temp.path()+"/state.sqlite");
+        QCOMPARE(saveAttachments(output,"first",{{"报告.pdf","application/pdf","one"}},reopened).first(),first);
+        QCOMPARE(QDir(output).entryList(QDir::Files).size(),2);
+        QFile external(QDir(output).filePath("existing.pdf"));
+        QVERIFY(external.open(QIODevice::WriteOnly)); external.write("user file"); external.close();
+        auto path = saveAttachments(output,"third",{{"existing.pdf","application/pdf","mail"}},reopened).first();
+        QCOMPARE(QFileInfo(path).fileName(),QString("existing (2).pdf"));
+        QVERIFY(external.open(QIODevice::ReadOnly)); QCOMPARE(external.readAll(),QByteArray("user file"));
+        QVERIFY_EXCEPTION_THROWN(saveAttachments(output,"first",{{"报告.pdf","application/pdf","changed"}},reopened),std::runtime_error);
     }
     void configNeverPersistsSecret() {
         QTemporaryDir temp; Config c; c.email="me@qq.com"; c.secret="sensitive"; c.outputDir=temp.path();

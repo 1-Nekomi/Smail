@@ -47,7 +47,7 @@ void Collector::poll() {
                 r.subject = decodeHeader(message.headers.value("subject"));
                 auto selection = selectAttachments(message, config);
                 r.status = selection.status; r.detail = selection.reason;
-                if (!selection.accepted.isEmpty()) r.files = saveAttachments(config.outputDir, id, selection.accepted);
+                if (!selection.accepted.isEmpty()) r.files = saveAttachments(config.outputDir, id, selection.accepted, store);
                 if (r.status == "rejected" && config.reply) recipient = replyAddress(message, config.email);
             }
             // Persist the result before any external side effect. A crash can suppress a
