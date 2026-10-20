@@ -36,7 +36,7 @@ void Config::save(const QString &path) const {
         {"interval", interval}, {"maxAttachmentMb", maxAttachmentMb}, {"maxMessageMb", maxMessageMb},
         {"extensions", QJsonArray::fromStringList(extensions)}, {"mimeTypes", QJsonArray::fromStringList(mimeTypes)},
         {"strict", strict}, {"inlineImages", inlineImages}, {"includeExisting", includeExisting},
-        {"reply", reply}, {"rejection", rejection}};
+        {"reply", reply}, {"rejection", rejection}, {"rememberSecret", rememberSecret}};
     QSaveFile f(path);
     const auto data = QJsonDocument(o).toJson();
     if (!f.open(QIODevice::WriteOnly) || f.write(data) != data.size() || !f.commit()) fail("无法保存配置");
@@ -60,6 +60,7 @@ Config Config::load(const QString &path) {
     c.strict = o["strict"].toBool(); c.inlineImages = o["inlineImages"].toBool();
     c.includeExisting = o["includeExisting"].toBool(); c.reply = o["reply"].toBool();
     c.rejection = o["rejection"].toString(c.rejection);
+    c.rememberSecret = o["rememberSecret"].toBool(true);
     return c;
 }
 }

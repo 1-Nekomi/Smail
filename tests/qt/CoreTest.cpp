@@ -2,6 +2,7 @@
 #include "smail/Mime.h"
 #include "smail/Store.h"
 #include "smail/MailClient.h"
+#include "smail/CredentialStore.h"
 #include <QtTest>
 #include <QTemporaryDir>
 #include <QFile>
@@ -83,6 +84,51 @@ private slots:
         QFile f(temp.path()+"/config.json"); QVERIFY(f.open(QIODevice::ReadOnly)); QVERIFY(!f.readAll().contains("sensitive"));
         auto loaded=Config::load(temp.path()+"/config.json"); QVERIFY(loaded.secret.isEmpty()); QCOMPARE(loaded.email,c.email);
         c.maxMessageMb=1; QVERIFY(!c.validate().isEmpty());
+    }
+    void encryptedCredentialsPersistAndForget() {
+        try {
+        if (!CredentialStore::supported()) QSKIP("DPAPI requires Windows");
+        QTemporaryDir temp;
+        Config c; c.email="test@qq.com"; c.secret="test-only-credential-测试";
+        {
+            CredentialStore store(temp.path());
+            QVERIFY(store.load(c).isEmpty());
+            store.save(c);
+        }
+        CredentialStore reopened(temp.path());
+        QCOMPARE(reopened.load(c),c.secret);
+        const auto files = QDir(temp.path()).entryList({"*.dpapi"},QDir::Files);
+        QCOMPARE(files.size(),1);
+        QFile blob(QDir(temp.path()).filePath(files.first()));
+        QVERIFY(blob.open(QIODevice::ReadOnly));
+        QVERIFY(!blob.readAll().contains(c.secret.toUtf8())); blob.close();
+        auto changed = c; changed.smtpHost="another.example.com";
+        QVERIFY(reopened.load(changed).isEmpty());
+        c.secret="replacement-test-only";
+        reopened.save(c); QCOMPARE(reopened.load(c),c.secret);
+        reopened.remove(c); QVERIFY(reopened.load(c).isEmpty());
+        reopened.remove(c); // Forget is idempotent.
+        } catch (const std::exception &e) { QFAIL(e.what()); }
+    }
+    void encryptedCredentialsRejectTamperingAndWrongScope() {
+        try {
+        if (!CredentialStore::supported()) QSKIP("DPAPI requires Windows");
+        QTemporaryDir temp;
+        CredentialStore store(temp.path());
+        Config c; c.email="first@qq.com"; c.secret="first-test";
+        store.save(c);
+        QString first = QDir(temp.path()).entryList({"*.dpapi"},QDir::Files).first();
+        QFile original(QDir(temp.path()).filePath(first));
+        QVERIFY(original.open(QIODevice::ReadOnly)); QByteArray data=original.readAll(); original.close();
+        Config other=c; other.email="second@qq.com"; other.secret="second-test"; store.save(other);
+        auto names=QDir(temp.path()).entryList({"*.dpapi"},QDir::Files); names.removeAll(first);
+        QCOMPARE(names.size(),1);
+        QFile swapped(QDir(temp.path()).filePath(names.first()));
+        QVERIFY(swapped.open(QIODevice::WriteOnly)); QCOMPARE(swapped.write(data),data.size()); swapped.close();
+        QVERIFY_EXCEPTION_THROWN(store.load(other),std::runtime_error);
+        QVERIFY(original.open(QIODevice::WriteOnly)); original.write("corrupted"); original.close();
+        QVERIFY_EXCEPTION_THROWN(store.load(c),std::runtime_error);
+        } catch (const std::exception &e) { QFAIL(e.what()); }
     }
     void searchSemantics() {
         QCOMPARE(MailClient::parseSearch("* SEARCH 8 1 4 8\r\n",3),QVector<quint64>({4,8}));

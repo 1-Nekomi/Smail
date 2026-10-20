@@ -6,10 +6,13 @@ set(CMAKE_AUTOMOC ON)
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets Network Sql)
 include(CTest)
 add_library(smail_core
-    src/core/Config.cpp src/core/Mime.cpp src/core/Store.cpp
+    src/core/Config.cpp src/core/Mime.cpp src/core/Store.cpp src/core/CredentialStore.cpp
     src/net/MailClient.cpp)
 target_include_directories(smail_core PUBLIC include)
 target_link_libraries(smail_core PUBLIC Qt6::Core Qt6::Network Qt6::Sql)
+if(WIN32)
+    target_link_libraries(smail_core PRIVATE crypt32)
+endif()
 add_executable(Smail WIN32
     src/app/main.cpp src/app/MainWindow.cpp src/app/Collector.cpp
     include/smail/MainWindow.h include/smail/Collector.h)

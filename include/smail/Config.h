@@ -13,6 +13,7 @@ struct Config {
     QStringList extensions = {"pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "jpg", "jpeg", "png"};
     QStringList mimeTypes;
     bool strict = false, inlineImages = false, includeExisting = false, reply = false;
+    bool rememberSecret = true;
     QString rejection = QStringLiteral("附件未被收取：{reason}。支持的类型：{allowed_types}。");
     QString validate() const;
     QString accountKey() const;

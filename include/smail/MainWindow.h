@@ -23,7 +23,7 @@ private:
     QString dataDir;
     QLineEdit *email, *secret, *output, *imap, *smtp, *extensions, *mimeTypes;
     QSpinBox *imapPort, *smtpPort, *interval, *attachmentSize, *messageSize;
-    QCheckBox *strict, *inlineImages, *existing, *reply;
+    QCheckBox *strict, *inlineImages, *existing, *reply, *rememberSecret;
     QComboBox *provider;
     QPlainTextEdit *rejection, *log, *history;
     QPushButton *start, *stop;
@@ -36,5 +36,7 @@ private:
     void begin();
     void appendLog(const QString &message);
     void refreshHistory();
+    void loadSecret();
+    void persistSettings(const Config &config);
 };
 }

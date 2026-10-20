@@ -1,6 +1,7 @@
 #include "smail/MainWindow.h"
 #include "smail/Collector.h"
 #include "smail/Store.h"
+#include "smail/CredentialStore.h"
 #include <QApplication>
 #include <QCheckBox>
 #include <QCloseEvent>
@@ -53,7 +54,15 @@ MainWindow::MainWindow(QString dir) : dataDir(std::move(dir)) {
     form->setContentsMargins(20,20,20,20); form->setSpacing(14);
     provider = new QComboBox; provider->addItems({"QQ 邮箱", "自定义 IMAP / SMTP"});
     email = new QLineEdit; email->setPlaceholderText("12345678@qq.com");
-    secret = new QLineEdit; secret->setEchoMode(QLineEdit::Password); secret->setPlaceholderText("邮箱授权码，仅在本次运行中保存");
+    secret = new QLineEdit; secret->setEchoMode(QLineEdit::Password); secret->setPlaceholderText("输入邮箱授权码");
+    rememberSecret = new QCheckBox("加密记住授权码（当前 Windows 用户）");
+    rememberSecret->setEnabled(CredentialStore::supported());
+    auto *saveSecret = new QPushButton("保存设置");
+    auto *forgetSecret = new QPushButton("忘记授权码");
+    auto *credentialRow = new QWidget; auto *credentialLayout = new QHBoxLayout(credentialRow);
+    credentialLayout->setContentsMargins(0,0,0,0);
+    credentialLayout->addWidget(rememberSecret,1);
+    credentialLayout->addWidget(saveSecret); credentialLayout->addWidget(forgetSecret);
     imap = new QLineEdit; smtp = new QLineEdit; imapPort = spin(1,65535); smtpPort = spin(1,65535);
     output = new QLineEdit; auto *browse = new QPushButton("选择目录");
     auto *folderRow = new QWidget; auto *folderLayout = new QHBoxLayout(folderRow);
@@ -61,6 +70,7 @@ MainWindow::MainWindow(QString dir) : dataDir(std::move(dir)) {
     interval = spin(15,3600); interval->setSuffix(" 秒");
     existing = new QCheckBox("首次连接时也处理历史邮件（包括已读）");
     form->addRow("邮箱类型",provider); form->addRow("邮箱地址",email); form->addRow("授权码",secret);
+    form->addRow(credentialRow);
     form->addRow("IMAP 服务器",imap); form->addRow("IMAP TLS 端口",imapPort);
     form->addRow("SMTP 服务器",smtp); form->addRow("SMTP TLS 端口",smtpPort);
     form->addRow("附件保存位置",folderRow); form->addRow("检查间隔",interval); form->addRow(existing);
@@ -121,6 +131,31 @@ MainWindow::MainWindow(QString dir) : dataDir(std::move(dir)) {
     connect(reply,&QCheckBox::toggled,rejection,&QWidget::setEnabled);
     try { fill(Config::load(dataDir+"/settings.json")); }
     catch (const std::exception &e) { fill(Config{}); appendLog(QString::fromUtf8(e.what())); }
+    loadSecret();
+    // Clear any credential before switching account/server, so it is never
+    // accidentally submitted to a newly configured endpoint.
+    for (auto *field : {email, imap, smtp})
+        connect(field,&QLineEdit::textChanged,this,&MainWindow::loadSecret);
+    for (auto *field : {imapPort, smtpPort})
+        connect(field,&QSpinBox::valueChanged,this,&MainWindow::loadSecret);
+    connect(saveSecret,&QPushButton::clicked,this,[this] {
+        auto c = readConfig();
+        auto error = c.validate();
+        if (output->text().trimmed().isEmpty()) error = "请选择附件保存目录。";
+        if (!error.isEmpty()) { QMessageBox::warning(this,"配置需要调整",error); return; }
+        try {
+            persistSettings(c);
+            appendLog(c.rememberSecret ? "设置已保存，授权码已加密保存" : "设置已保存，授权码仅供本次使用");
+        } catch (const std::exception &e) { QMessageBox::warning(this,"保存失败",QString::fromUtf8(e.what())); }
+    });
+    connect(forgetSecret,&QPushButton::clicked,this,[this] {
+        try {
+            CredentialStore(dataDir+"/credentials").remove(readConfig());
+            secret->clear(); rememberSecret->setChecked(false);
+            readConfig().save(dataDir+"/settings.json");
+            appendLog("已删除当前邮箱的已保存授权码");
+        } catch (const std::exception &e) { QMessageBox::warning(this,"操作失败",QString::fromUtf8(e.what())); }
+    });
     refreshHistory();
 }
 MainWindow::~MainWindow() { if (collector) { collector->requestInterruption(); collector->wait(); } }
@@ -133,6 +168,7 @@ void MainWindow::fill(const Config &c) {
     mimeTypes->setText(c.mimeTypes.join(",")); strict->setChecked(c.strict); inlineImages->setChecked(c.inlineImages);
     existing->setChecked(c.includeExisting); reply->setChecked(c.reply); rejection->setPlainText(c.rejection);
     rejection->setEnabled(c.reply); attachmentSize->setValue(c.maxAttachmentMb); messageSize->setValue(c.maxMessageMb);
+    rememberSecret->setChecked(CredentialStore::supported() && c.rememberSecret);
 }
 Config MainWindow::readConfig() const {
     Config c; c.email = email->text().trimmed(); c.secret = secret->text();
@@ -141,6 +177,7 @@ Config MainWindow::readConfig() const {
     c.interval = interval->value(); c.extensions = tokens(extensions->text()); c.mimeTypes = tokens(mimeTypes->text());
     c.strict = strict->isChecked(); c.inlineImages = inlineImages->isChecked(); c.includeExisting = existing->isChecked();
     c.reply = reply->isChecked(); c.rejection = rejection->toPlainText();
+    c.rememberSecret = rememberSecret->isChecked();
     c.maxAttachmentMb = attachmentSize->value(); c.maxMessageMb = messageSize->value(); return c;
 }
 void MainWindow::begin() {
@@ -151,7 +188,7 @@ void MainWindow::begin() {
     if (!error.isEmpty()) { QMessageBox::warning(this,"配置需要调整",error); return; }
     try {
         if (!QDir().mkpath(c.outputDir)) fail("无法创建附件目录");
-        c.save(dataDir+"/settings.json");
+        persistSettings(c);
     } catch (const std::exception &e) { QMessageBox::warning(this,"无法开始",QString::fromUtf8(e.what())); return; }
     collector = new Collector(c,dataDir+"/history.sqlite",this);
     connect(collector,&Collector::activity,this,&MainWindow::appendLog);
@@ -167,6 +204,18 @@ void MainWindow::begin() {
     });
     tabs->setTabEnabled(0,false); tabs->setTabEnabled(1,false); tabs->setCurrentIndex(2);
     start->setEnabled(false); stop->setEnabled(true); collector->start();
+}
+void MainWindow::loadSecret() {
+    secret->clear();
+    if (!rememberSecret->isChecked() || email->text().trimmed().isEmpty()) return;
+    try { secret->setText(CredentialStore(dataDir+"/credentials").load(readConfig())); }
+    catch (const std::exception &e) { appendLog(QString::fromUtf8(e.what())); }
+}
+void MainWindow::persistSettings(const Config &c) {
+    CredentialStore credentials(dataDir+"/credentials");
+    if (c.rememberSecret) credentials.save(c);
+    else credentials.remove(c);
+    c.save(dataDir+"/settings.json");
 }
 void MainWindow::appendLog(const QString &message) {
     QString clean = message; clean.replace('\r',' '); clean.replace('\n',' ');
