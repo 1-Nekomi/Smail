@@ -33,8 +33,13 @@ QMap<QByteArray,QByteArray> headers(const QByteArray &head) {
             auto colon = line.indexOf(':');
             if (colon <= 0) { key.clear(); continue; }
             key = line.left(colon).toLower();
-            if (h.contains(key)) fail("重复 MIME 标头，拒绝解析");
-            h[key] = line.mid(colon+1).trimmed();
+            if (h.contains(key)) {
+                if (key == "content-type" || key == "content-disposition" || key == "content-transfer-encoding"
+                    || key == "from" || key == "auto-submitted" || key == "return-path")
+                    fail("重复关键 MIME 标头，拒绝解析");
+                // Received, DKIM-Signature and other trace headers legitimately repeat.
+                h[key] += "\n" + line.mid(colon+1).trimmed();
+            } else h[key] = line.mid(colon+1).trimmed();
         }
     }
     return h;

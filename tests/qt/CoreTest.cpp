@@ -11,7 +11,7 @@ class CoreTest : public QObject {
     Q_OBJECT
 private slots:
     void mimeAndRules() {
-        auto m = parseMessage("From: Test <sender@example.com>\r\nSubject: test\r\nContent-Type: multipart/mixed; boundary=\"b\"\r\n\r\n"
+        auto m = parseMessage("Received: by relay2\r\nReceived: by relay1\r\nFrom: Test <sender@example.com>\r\nSubject: test\r\nContent-Type: multipart/mixed; boundary=\"b\"\r\n\r\n"
             "--b\r\nContent-Type: text/plain\r\n\r\nhello\r\n"
             "--b\r\nContent-Type: application/pdf\r\nContent-Disposition: attachment; filename=\"REPORT.PDF\"\r\nContent-Transfer-Encoding: base64\r\n\r\nJVBERg==\r\n"
             "--b\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=bad.exe\r\n\r\nbad\r\n--b--\r\n");
@@ -35,6 +35,7 @@ private slots:
         QVERIFY(parseMessage(raw).attachments.isEmpty()); QCOMPARE(parseMessage(raw,true).attachments.size(),1);
         QVERIFY_EXCEPTION_THROWN(parseMessage("Content-Type: multipart/mixed; boundary=b\r\n\r\n--b\r\n"),std::runtime_error);
         QVERIFY_EXCEPTION_THROWN(parseMessage("Content-Disposition: attachment; filename=x.pdf\r\nContent-Transfer-Encoding: base64\r\n\r\n!!!!"),std::runtime_error);
+        QVERIFY_EXCEPTION_THROWN(parseMessage("From: a@example.com\r\nFrom: b@example.com\r\n\r\nbody"),std::runtime_error);
     }
     void storageAndRecovery() {
         QTemporaryDir temp;

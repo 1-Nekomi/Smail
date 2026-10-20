@@ -1,89 +1,110 @@
-# Smail 邮件附件自动收取
+# Smail · 邮件附件自动收取
 
-Python 3.11+，无需安装第三方包。Windows 优先；其他平台可使用日志及邮件通知。
-整体设计见 [ARCHITECTURE.md](ARCHITECTURE.md)。
+Qt 6 Widgets / C++17 桌面程序，采用 `src + include + CMake` 架构。
+QQ 邮箱预设及自定义 IMAP/SMTP 服务器；不需要 Python 运行时。
 
-## 已实现
+![邮箱设置](docs/ui-preview.png)
 
-- IMAP TLS 轮询收件，QQ 默认配置，其他兼容邮箱可配置服务器。
-- 图片/文档等附件按扩展名、MIME 类型和大小筛选。
-- 默认保存合格附件；没有合格附件时，向原始 From 发件人回复配置文字。
-- 附件成功保存并记录后设置已读；拒收和无附件邮件也设置已读。
-- Windows 桌面通知、另一邮箱接收通知、控制台与轮转日志，可同时使用。
-- SQLite 历史与断点续跑、网络错误退避重试、单实例锁、防文件名越界。
+## 运行
 
-## 开始使用（PowerShell）
+本工作区已生成 Windows x64 发布目录：`dist/Smail/Smail.exe`。
+双击启动，移动程序时请复制整个 `dist/Smail` 文件夹，不能只复制 exe。
+
+1. QQ 网页邮箱中开启 IMAP/SMTP 服务，生成授权码。
+2. 输入邮箱地址、**授权码（不是网页登录密码）**、附件保存目录。
+3. 在“收取规则”选择图片/文档，或自行输入扩展名白名单。
+4. 根据需要开启自动拒收回复，修改回复正文。
+5. 点击“开始收取”，等日志出现“新邮件基线已建立”，再发送测试邮件。
+
+QQ 预设为 `imap.qq.com:993` / `smtp.qq.com:465`，均使用隐式 TLS。
+自定义邮箱需支持 IMAP LOGIN 和 SMTP AUTH LOGIN；不支持 OAuth2、STARTTLS、
+POP3、Exchange 专用协议或网盘附件链接。服务器设置以邮箱服务商说明为准。
+
+程序默认每 60 秒检查；窗口关闭后保留系统托盘，右键托盘选择“退出”彻底关闭。
+若系统没有托盘，关闭窗口即退出。电脑必须运行、联网且不休眠。
+
+## 收取规则与通知
+
+- 扩展名不区分大小写，可输入 `pdf,docx,jpg`；留空允许所有扩展名。
+- 可叠加 MIME 白名单，如 `image/*,application/pdf`；两种规则同时配置时需同时满足。
+- 默认仅保存匹配部分；开启严格模式后，任一附件不符即整封拒收。
+- 默认忽略正文内嵌图片；可开启。默认单附件 25 MB、整封邮件 50 MB。
+- 拒收指不保存附件，可自动回复；不删除邮件，不是服务器投递退信。
+- 模板支持 `{reason}`、`{allowed_types}`，后者表示配置的扩展名列表。
+- 无附件邮件、超大邮件、自动邮件、列表邮件、自发邮件与 no-reply 发件人不自动回复。
+- 保存成功、拒收或无附件处理完成后标记已读，并写入运行记录及日志，弹出托盘通知。
+  通知是否可见取决于 Windows 通知设置；历史记录始终可查。
+
+![收取规则](docs/ui-preview-2.png)
+
+## 稳定性与数据
+
+首次连接默认跳过所有旧邮件；“收取历史邮件”仅对尚未建立基线的邮箱有效。
+按 UID 跟踪新邮件，因此在手机上读过的新邮件也会收取。服务端 UIDVALIDITY
+变化时重建基线，采用当前历史收取选项。
+
+附件以稳定消息目录 + 编号存储，使用原子写入；SQLite 保存处理进度，
+断线后退避重试（最多 15 分钟），标记已读失败时从已有结果恢复。
+同账号失败邮件会阻塞后续进度，避免静默丢失；无法解析的邮件可先手动移出收件箱，
+核查日志后等待下轮处理。首版不提供 UI 跳过功能。
+
+配置、SQLite 历史和轮转日志默认位于
+`%LOCALAPPDATA%/Smail/Smail/`。授权码仅在本次进程内保存，不写配置或日志。
+不保存授权码意味着重启后需要重新输入。不要删除状态数据库，否则会重建收取基线。
+日志和历史含邮件主题、路径等本地业务信息。
+
+SMTP 与 SQLite 无法组成原子事务：回复发送前记录 `attempted`，
+确认发送为 `sent`，异常为 `uncertain`。`attempted`/`uncertain`
+不自动重发，需人工核查；极端中断时可能漏发回复。托盘通知不保证崩溃后的重放。
+文件类型检查基于邮件扩展名和 MIME 声明，不是内容鉴真或杀毒。
+
+## 构建与验证
+
+依赖：CMake ≥ 3.21、C++17 编译器、Qt ≥ 6.5 的 Core、Widgets、Network、Sql、Test。
+使用与 Qt 安装包匹配的编译器。以下为本机 PowerShell 命令：
 
 ```powershell
-Copy-Item config.example.json config.json
-notepad config.json
+$env:PATH = "D:\Application\QtTools\Tools\mingw1310_64\bin;D:\Application\QtTools\6.11.2\mingw_64\bin;" + $env:PATH
+cmake -S . -B build -G Ninja `
+  -DCMAKE_PREFIX_PATH=D:/Application/QtTools/6.11.2/mingw_64 `
+  -DCMAKE_CXX_COMPILER=D:/Application/QtTools/Tools/mingw1310_64/bin/g++.exe `
+  -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j 4
+ctest --test-dir build --output-on-failure
 ```
 
-填写 `email`、`output_dir`（可用 `D:/邮件附件`）、`notification_email`。
-QQ 邮箱需要在网页版设置中开启 IMAP/SMTP 服务并生成授权码。
-授权码与网页登录密码不同。配置示例使用 `imap.qq.com:993` 和 `smtp.qq.com:465`。
-
-使用交互输入将授权码放到当前 PowerShell 会话环境变量，避免写进命令历史：
+其他环境替换 Qt 路径与匹配编译器即可。Windows 发布：
 
 ```powershell
-$smailSecret = Read-Host "邮箱授权码" -AsSecureString
-$env:SMAIL_PASSWORD = [System.Net.NetworkCredential]::new("", $smailSecret).Password
-python -m smail check
-python -m smail once
-python -m smail run
+New-Item -ItemType Directory -Force dist/Smail
+Copy-Item build/Smail.exe dist/Smail/
+windeployqt --release --no-translations dist/Smail/Smail.exe
 ```
 
-`check` 仅检查配置，不连接邮箱。`once` 执行一次实际轮询，可能下载、标记已读和发信。
-`run` 每 60 秒轮询，Ctrl+C 停止。程序必须运行，电脑也须保持联网、非休眠状态。
-首次成功连接默认跳过当时所有旧邮件；建立基线后发送一封带附件的测试邮件即可验收。
-配置 `include_existing: true` 可在首次连接时收取全部历史邮件（包括已读邮件）。
-已有基线时更改该项不会重置进度。不要随意删除状态目录，否则可能重新处理历史邮件。
+离线界面/TLS 后端启动检查，不连接邮箱、不发信：
 
 ```powershell
-python -m smail history
-python -m unittest discover -s tests -v
+.\dist\Smail\Smail.exe --data-dir .\build\smoke-state --smoke-test
 ```
 
-## 配置
+`--screenshot <PNG路径>` 可以生成三个页签截图并退出；`--data-dir` 可隔离测试数据。
+程序不带自动连接功能，正常启动也必须主动点击开始才连接。
 
-| 字段 | 含义 |
-|---|---|
-| `output_dir` / `state_dir` | 附件目录 / 状态与日志目录；相对路径以配置文件所在目录为基准 |
-| `allowed_extensions` | 扩展名白名单，不区分大小写；空列表表示不限制扩展名 |
-| `allowed_mime_types` | MIME 白名单，如 `["image/*", "application/pdf"]`；空列表不限制 |
-| `policy` | `matching` 保存合格部分；`strict` 有不合格项则整封拒收 |
-| `include_inline` | 是否收取正文内嵌图片，默认 false，避免收集签名图标 |
-| `max_attachment_mb` / `max_message_mb` | 单附件 / 整封邮件大小上限 |
-| `reply_enabled` | 拒收邮件是否自动回复，示例默认 true |
-| `rejection_message` | 回复正文，可使用 `{reason}` 和 `{allowed_types}`；其他花括号请用 `{{`、`}}` |
-| `notification` | `desktop` 桌面通知并记日志，或 `log` 仅日志 |
-| `notification_email` | 邮件通知收件地址；空字符串关闭。须不同于收信邮箱 |
-| `smtp_host` / `smtp_port` | SMTP 隐式 TLS 服务器；第一版不支持 STARTTLS |
-| `password_env` | 授权码环境变量名；收信和发信使用同一账号授权码 |
+本机已完成：Release 编译、7 项 Qt 业务测试（另有 init/cleanup）、
+打包程序启动/TLS 后端检查、三个页签截图检查、原 Python 原型 12 项回归测试。
+**尚未用真实邮箱进行端到端联调，也未验证所有服务商及 MIME 变种。**
 
-同时开启三种通知：保持 `notification: "desktop"`，填写 `notification_email`；
-日志始终保存在 `data/smail.log`。桌面气泡受 Windows 通知设置及交互桌面会话影响。
-程序不提供 GUI，`history` 展示最近 50 条记录及文件完整路径。
+真实邮箱建议验收：PDF、PNG、EXE、不带附件、混合附件、超限附件各发一封；
+检查目录、已读状态、通知、回复；断网重连及程序重启后检查是否重复下载/回复。
 
-## 行为与限制
+## 架构与后续方向
 
-- 客户端“拒收”是拒绝保存附件并回复，不是 SMTP 投递阶段退信，也不会删除原邮件。
-- 没有附件的普通邮件只记录和标记已读，不回复；自动邮件、列表邮件、自发邮件、
-  no-reply 发件人以及整封超限邮件不自动回复。内嵌图片默认不算候选附件。
-- 从邮箱移除的待处理邮件会跳过；其他处理失败会停在该邮件等待下轮重试。
-- 附件按稳定邮件标识建子目录，并加序号避免同名覆盖。不会自动解压或打开。
-- 扩展名和 MIME 都来自邮件信息，不提供文件内容鉴真或杀毒；不支持云附件下载链接。
-- 附件下载具备幂等性；SMTP 无法与本地数据库原子提交，发送超时会记录 `uncertain`，
-  不自动重发。可在 `history` 核查 `reply` / `email_notice` 状态。
-- SQLite 时间 `created` 为 UTC。日志采用运行系统本地时间。
-- 其他邮箱仅限支持密码/授权码 IMAP 登录的服务。需要 OAuth2 的账号暂不支持。
-- 尚未使用真实邮箱联调；自动测试覆盖 MIME 筛选、落盘、重试、基线和通知防循环。
+见 [整体架构](docs/qt-architecture.md)。
+推荐后续增加系统凭据库（免反复输入授权码）、发件人白名单、
+多账号与按项目归档；然后再加入 OAuth2、开机启动和杀毒扫描。
+目前实现为独立桌面工具，若需嵌入其他宿主软件，可在 `smail_core` 之上增加插件适配层。
 
-## 建议的下一阶段
+原 Python 原型保留于 `smail/`，不参与 Qt 程序运行；
+旧文档见 [Python 原型说明](docs/python-prototype.md)。
 
-增加托盘设置界面与凭据库、发件人白名单、开机启动；
-业务需要时再扩展多账号、按项目归档和病毒扫描。
-
-协议与配置参考：
-[Python IMAP 官方文档](https://docs.python.org/3/library/imaplib.html)、
-[腾讯云 Email 连接器说明](https://main.qcloudimg.com/raw/document/product/pdf/1270_46586_cn.pdf)。
+实现参考：[Qt QSslSocket 官方文档](https://doc.qt.io/qt-6/qsslsocket.html)。
