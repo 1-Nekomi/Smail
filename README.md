@@ -1,7 +1,7 @@
 # Smail · 邮件附件自动收取
 
 Qt 6 Widgets / C++17 桌面程序，采用 `src + include + CMake` 架构。
-QQ 邮箱预设及自定义 IMAP/SMTP 服务器；不需要 Python 运行时。
+QQ 邮箱预设及自定义 IMAP/SMTP 服务器。
 
 ![邮箱设置](docs/ui-preview.png)
 
@@ -91,7 +91,7 @@ windeployqt --release --no-translations dist/Smail/Smail.exe
 程序不带自动连接功能，正常启动也必须主动点击开始才连接。
 
 本机已完成：Release 编译、7 项 Qt 业务测试（另有 init/cleanup）、
-打包程序启动/TLS 后端检查、三个页签截图检查、原 Python 原型 12 项回归测试。
+打包程序启动/TLS 后端检查、三个页签截图检查。
 **尚未用真实邮箱进行端到端联调，也未验证所有服务商及 MIME 变种。**
 
 真实邮箱建议验收：PDF、PNG、EXE、不带附件、混合附件、超限附件各发一封；
@@ -103,8 +103,5 @@ windeployqt --release --no-translations dist/Smail/Smail.exe
 推荐后续增加系统凭据库（免反复输入授权码）、发件人白名单、
 多账号与按项目归档；然后再加入 OAuth2、开机启动和杀毒扫描。
 目前实现为独立桌面工具，若需嵌入其他宿主软件，可在 `smail_core` 之上增加插件适配层。
-
-原 Python 原型保留于 `smail/`，不参与 Qt 程序运行；
-旧文档见 [Python 原型说明](docs/python-prototype.md)。
 
 实现参考：[Qt QSslSocket 官方文档](https://doc.qt.io/qt-6/qsslsocket.html)。

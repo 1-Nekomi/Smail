@@ -1,9 +1,6 @@
-__pycache__/
-*.pyc
 config.json
 data/
 downloads/
-.venv/
 build*/
 dist/
 *.user

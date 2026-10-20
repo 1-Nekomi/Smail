@@ -2,7 +2,7 @@
 
 ## 产品与界面
 
-独立桌面工具（不依赖 Python），Qt 6 Widgets + C++17。窗口分为邮箱设置、
+独立桌面工具，Qt 6 Widgets + C++17。窗口分为邮箱设置、
 收取规则、运行记录三个页签，底部提供开始/停止及运行状态。
 QQ 预设 IMAP 993 / SMTP 465；自定义服务器支持隐式 TLS、密码/授权码登录。
 授权码只保存在内存，配置文件不写密钥。先支持单账号，后续扩展 OAuth2 与凭据库。
@@ -16,7 +16,6 @@ QQ 预设 IMAP 993 / SMTP 465；自定义服务器支持隐式 TLS、密码/授�
 - `src/app/`：后台收取线程、Widgets 主窗口、托盘与进程入口。
 - `tests/qt/`：Qt Test 离线回归测试。
 - `CMakeLists.txt`：Qt Core/Widgets/Network/Sql/Test，无额外第三方运行依赖。
-- 原 `smail/` 和 Python 测试保留为历史原型，不参与桌面程序运行。
 
 ## 数据流与一致性
 

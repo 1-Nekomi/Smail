@@ -1,1 +1,0 @@
-"""Smail: local attachment collector."""
