@@ -4,3 +4,7 @@ config.json
 data/
 downloads/
 .venv/
+build*/
+dist/
+*.user
+*.sqlite*

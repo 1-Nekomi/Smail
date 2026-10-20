@@ -1,0 +1,28 @@
+cmake_minimum_required(VERSION 3.21)
+project(Smail VERSION 0.1.0 LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_AUTOMOC ON)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets Network Sql)
+include(CTest)
+add_library(smail_core
+    src/core/Config.cpp src/core/Mime.cpp src/core/Store.cpp
+    src/net/MailClient.cpp)
+target_include_directories(smail_core PUBLIC include)
+target_link_libraries(smail_core PUBLIC Qt6::Core Qt6::Network Qt6::Sql)
+add_executable(Smail WIN32
+    src/app/main.cpp src/app/MainWindow.cpp src/app/Collector.cpp
+    include/smail/MainWindow.h include/smail/Collector.h)
+target_link_libraries(Smail PRIVATE smail_core Qt6::Widgets)
+if(MSVC)
+    target_compile_options(smail_core PUBLIC /utf-8 /W4)
+else()
+    target_compile_options(smail_core PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+if(BUILD_TESTING)
+    find_package(Qt6 REQUIRED COMPONENTS Test)
+    add_executable(smail_tests tests/qt/CoreTest.cpp)
+    target_link_libraries(smail_tests PRIVATE smail_core Qt6::Test)
+    add_test(NAME smail_core COMMAND smail_tests)
+endif()
+install(TARGETS Smail RUNTIME DESTINATION bin)
