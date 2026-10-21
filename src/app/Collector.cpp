@@ -61,9 +61,10 @@ void Collector::poll() {
                 try {
                     MailClient::sendReply(config, recipient, body, [this] { return isInterruptionRequested(); });
                     r.replyState = "sent";
-                } catch (const std::exception &) {
+                } catch (const std::exception &e) {
                     r.replyState = "uncertain";
                     emit activity("拒收回复未确认，已记录 uncertain；请人工核查，不会自动重发");
+                    emit activity("SMTP 详情：" + QString::fromUtf8(e.what()));
                 }
                 store.put(r);
             }

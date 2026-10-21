@@ -1,4 +1,5 @@
 #include "smail/MailClient.h"
+#include "smail/TlsConnection.h"
 #include <QElapsedTimer>
 #include <QRegularExpression>
 #include <QUuid>
@@ -17,17 +18,7 @@ QByteArray quoted(QString value) {
 MailClient::MailClient(std::function<bool()> cancel) : cancelled(std::move(cancel)) {}
 void MailClient::checkCancelled() { if (cancelled && cancelled()) fail("收取已停止"); }
 void MailClient::connectTls(const QString &host, int port) {
-    checkCancelled();
-    if (!QSslSocket::supportsSsl()) fail("TLS 后端不可用，请检查 Qt TLS 插件");
-    socket.setPeerVerifyMode(QSslSocket::VerifyPeer);
-    socket.connectToHostEncrypted(host, quint16(port));
-    QElapsedTimer timer; timer.start();
-    while (!socket.isEncrypted()) {
-        checkCancelled();
-        if (socket.waitForEncrypted(250)) break;
-        if (socket.state() == QAbstractSocket::UnconnectedState || timer.elapsed() > 30000)
-            fail("TLS 连接失败：" + socket.errorString());
-    }
+    establishTls(socket, host, quint16(port), cancelled);
 }
 void MailClient::write(const QByteArray &data) {
     checkCancelled();
