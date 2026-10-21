@@ -7,6 +7,16 @@ QQ 邮箱预设及自定义 IMAP/SMTP 服务器。
 
 ## 运行
 
+安装版：`dist/Smail-0.1.1-windows-x64-setup.exe`（Windows 10/11 x64）。
+默认安装到当前用户，包含 Qt 运行库、桌面/开始菜单快捷方式和卸载入口。
+更新前请从托盘退出旧程序。卸载保留已下载附件、配置和授权码。
+安装包尚未代码签名，可能显示“未知发布者”。
+
+重新打包：安装 NSIS 后执行 `packaging/windows/build-installer.ps1 -NsisCompiler <makensis.exe路径>`；
+可用 `-QtRoot`、`-CompilerBin` 指定开发环境。附带 SHA256 校验文件。
+`-SmokeIdentity` 生成使用独立产品标识的测试包，随后运行 `test-installer.ps1`
+验证安装、快捷方式、独立运行和卸载，不影响正式安装。
+
 本工作区已生成 Windows x64 发布目录：`dist/Smail/Smail.exe`。
 双击启动，移动程序时请复制整个 `dist/Smail` 文件夹，不能只复制 exe。
 
@@ -104,7 +114,7 @@ windeployqt --release --no-translations dist/Smail/Smail.exe
 `--screenshot <PNG路径>` 可以生成三个页签截图并退出；`--data-dir` 可隔离测试数据。
 程序不带自动连接功能，正常启动也必须主动点击开始才连接。
 
-本机已完成：Release 编译、10 项 Qt 业务测试（另有 init/cleanup，包含 DPAPI 往返、篡改拒绝与凭据隔离）、
+本机已完成：Release 编译、10 项核心业务测试、4 项 Schannel TLS 回归测试（另有 init/cleanup，包含 DPAPI 往返、篡改拒绝与凭据隔离）、
 打包程序启动/TLS 后端检查、三个页签截图检查。
 **尚未用真实邮箱进行端到端联调，也未验证所有服务商及 MIME 变种。**
 
