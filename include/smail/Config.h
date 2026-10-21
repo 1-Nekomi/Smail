@@ -15,6 +15,9 @@ struct Config {
     bool strict = false, inlineImages = false, includeExisting = false, reply = false;
     bool rememberSecret = true;
     QString rejection = QStringLiteral("附件未被收取：{reason}。支持的类型：{allowed_types}。");
+    bool withAttachmentReply = false, withoutAttachmentReply = false;
+    QString withAttachmentMessage = QStringLiteral("您的邮件附件已成功收取，谢谢。");
+    QString withoutAttachmentMessage = QStringLiteral("已收到您的邮件，但未发现附件，请检查后补发。");
     QString validate() const;
     QString accountKey() const;
     void save(const QString &path) const;

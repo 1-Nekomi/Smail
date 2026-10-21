@@ -19,6 +19,8 @@ QString Config::validate() const {
     if (interval < 15 || interval > 3600) return QStringLiteral("轮询间隔应为 15–3600 秒。");
     if (maxAttachmentMb < 1 || maxMessageMb < maxAttachmentMb || maxMessageMb > 200) return QStringLiteral("大小限制应满足：1 ≤ 附件 ≤ 邮件 ≤ 200 MB。");
     if (reply && rejection.trimmed().isEmpty()) return QStringLiteral("请填写拒收回复内容。");
+    if (withAttachmentReply && withAttachmentMessage.trimmed().isEmpty()) return QStringLiteral("请填写有附件时的回复内容。");
+    if (withoutAttachmentReply && withoutAttachmentMessage.trimmed().isEmpty()) return QStringLiteral("请填写无附件时的回复内容。");
     for (const auto &ext : extensions)
         if (!QRegularExpression("^[a-z0-9]+$").match(ext).hasMatch()) return QStringLiteral("扩展名应为 pdf、docx 等，用逗号分隔。");
     for (const auto &mime : mimeTypes)
@@ -36,7 +38,9 @@ void Config::save(const QString &path) const {
         {"interval", interval}, {"maxAttachmentMb", maxAttachmentMb}, {"maxMessageMb", maxMessageMb},
         {"extensions", QJsonArray::fromStringList(extensions)}, {"mimeTypes", QJsonArray::fromStringList(mimeTypes)},
         {"strict", strict}, {"inlineImages", inlineImages}, {"includeExisting", includeExisting},
-        {"reply", reply}, {"rejection", rejection}, {"rememberSecret", rememberSecret}};
+        {"reply", reply}, {"rejection", rejection}, {"rememberSecret", rememberSecret},
+        {"withAttachmentReply", withAttachmentReply}, {"withoutAttachmentReply", withoutAttachmentReply},
+        {"withAttachmentMessage", withAttachmentMessage}, {"withoutAttachmentMessage", withoutAttachmentMessage}};
     QSaveFile f(path);
     const auto data = QJsonDocument(o).toJson();
     if (!f.open(QIODevice::WriteOnly) || f.write(data) != data.size() || !f.commit()) fail("无法保存配置");
@@ -61,6 +65,10 @@ Config Config::load(const QString &path) {
     c.includeExisting = o["includeExisting"].toBool(); c.reply = o["reply"].toBool();
     c.rejection = o["rejection"].toString(c.rejection);
     c.rememberSecret = o["rememberSecret"].toBool(true);
+    c.withAttachmentReply = o["withAttachmentReply"].toBool(false);
+    c.withoutAttachmentReply = o["withoutAttachmentReply"].toBool(false);
+    c.withAttachmentMessage = o["withAttachmentMessage"].toString(c.withAttachmentMessage);
+    c.withoutAttachmentMessage = o["withoutAttachmentMessage"].toString(c.withoutAttachmentMessage);
     return c;
 }
 }

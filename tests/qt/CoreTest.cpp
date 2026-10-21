@@ -3,6 +3,7 @@
 #include "smail/Store.h"
 #include "smail/MailClient.h"
 #include "smail/CredentialStore.h"
+#include "smail/ReplyPolicy.h"
 #include <QtTest>
 #include <QTemporaryDir>
 #include <QFile>
@@ -140,6 +141,58 @@ private slots:
         m.headers["from"]="me@example.com"; QVERIFY(replyAddress(m,"me@example.com").isEmpty());
         m.headers["from"]="no-reply@example.com"; QVERIFY(replyAddress(m,"me@example.com").isEmpty());
         m.headers["from"]="a@example.com"; m.headers["list-id"]="list"; QVERIFY(replyAddress(m,"me@example.com").isEmpty());
+    }
+    void replyRulesAreExclusiveAndRequireSavedFiles() {
+        Config c; c.email="me@qq.com";
+        c.withAttachmentReply=true; c.withoutAttachmentReply=true; c.reply=true;
+        c.withAttachmentMessage="成功 {attachment_count} 个\n谢谢";
+        c.withoutAttachmentMessage="请补发附件"; c.rejection="拒收：{reason}";
+        Message m; m.headers["from"]="sender@example.com";
+        auto s=selectAttachments(m,c);
+        QCOMPARE(planReply(m,s,0,c).body,c.withoutAttachmentMessage);
+        m.attachments={{"a.pdf","application/pdf","pdf"}};
+        s=selectAttachments(m,c);
+        QVERIFY(planReply(m,s,0,c).recipient.isEmpty()); // No acknowledgement before successful storage.
+        QCOMPARE(planReply(m,s,1,c).body,QString("成功 1 个\n谢谢"));
+        m.attachments.push_back({"bad.exe","application/octet-stream","exe"});
+        s=selectAttachments(m,c); // Matching mode saves one of the two attachments.
+        QCOMPARE(planReply(m,s,1,c).body,QString("成功 1 个\n谢谢"));
+        c.strict=true; s=selectAttachments(m,c);
+        QCOMPARE(planReply(m,s,0,c).body,"拒收："+s.reason);
+        c.reply=false;
+        QVERIFY(planReply(m,s,0,c).recipient.isEmpty()); // Rejection never falls back to success/no-attachment text.
+        c.strict=false; c.withAttachmentReply=false;
+        QVERIFY(planReply(m,selectAttachments(m,c),1,c).recipient.isEmpty());
+    }
+    void replyRulesRetainLoopProtectionAndInlineSemantics() {
+        Config c; c.email="me@example.com"; c.withAttachmentReply=true; c.withoutAttachmentReply=true;
+        Message m; m.headers["from"]="me@example.com";
+        QVERIFY(planReply(m,selectAttachments(m,c),0,c).recipient.isEmpty());
+        m.headers["from"]="sender@example.com"; m.headers["auto-submitted"]="auto-replied";
+        QVERIFY(planReply(m,selectAttachments(m,c),0,c).recipient.isEmpty());
+        m.attachments={{"a.pdf","application/pdf","pdf"}};
+        QVERIFY(planReply(m,selectAttachments(m,c),1,c).recipient.isEmpty());
+        QByteArray raw="From: sender@example.com\r\nContent-Type: image/png\r\nContent-Disposition: inline; filename=a.png\r\n\r\npng";
+        auto excluded=parseMessage(raw,false);
+        QCOMPARE(planReply(excluded,selectAttachments(excluded,c),0,c).body,c.withoutAttachmentMessage);
+        auto included=parseMessage(raw,true);
+        QCOMPARE(planReply(included,selectAttachments(included,c),1,c).body,c.withAttachmentMessage);
+    }
+    void replySettingsRoundTripAndOldConfigDefaults() {
+        QTemporaryDir temp; QString path=temp.path()+"/config.json";
+        QFile legacy(path); QVERIFY(legacy.open(QIODevice::WriteOnly)); legacy.write("{\"reply\":true,\"rejection\":\"legacy\"}"); legacy.close();
+        auto old=Config::load(path); QVERIFY(!old.withAttachmentReply); QVERIFY(!old.withoutAttachmentReply);
+        QVERIFY(old.reply); QCOMPARE(old.rejection,QString("legacy"));
+        Config c; c.email="me@qq.com"; c.secret="test-only"; c.outputDir=temp.path();
+        c.withAttachmentReply=true; c.withoutAttachmentReply=true;
+        c.withAttachmentMessage="附件已收取\n谢谢"; c.withoutAttachmentMessage="未发现附件\n请补发";
+        c.save(path); auto loaded=Config::load(path);
+        QVERIFY(loaded.withAttachmentReply); QVERIFY(loaded.withoutAttachmentReply);
+        QCOMPARE(loaded.withAttachmentMessage,c.withAttachmentMessage);
+        QCOMPARE(loaded.withoutAttachmentMessage,c.withoutAttachmentMessage);
+        c.withAttachmentMessage="  "; QVERIFY(!c.validate().isEmpty());
+        c.withAttachmentReply=false; c.withoutAttachmentMessage="\n"; QVERIFY(!c.validate().isEmpty());
+        c.withoutAttachmentReply=false; QVERIFY(c.validate().isEmpty());
     }
 };
 QTEST_GUILESS_MAIN(CoreTest)

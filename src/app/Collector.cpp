@@ -1,6 +1,7 @@
 #include "smail/Collector.h"
 #include "smail/MailClient.h"
 #include "smail/Store.h"
+#include "smail/ReplyPolicy.h"
 
 namespace smail {
 Collector::Collector(Config c, QString path, QObject *parent)
@@ -39,31 +40,29 @@ void Collector::poll() {
             qint64 size = client.messageSize(uid);
             if (size < 0) { store.checkpoint(key, QString::number(uid)); continue; }
             r.subject = QString("UID %1").arg(uid);
-            QString recipient;
+            ReplyPlan response;
             if (size > qint64(config.maxMessageMb)*1024*1024) {
-                r.status = "rejected"; r.detail = "整封邮件超限，未下载、不自动回复";
+                r.status = "rejected"; r.detail = "附件状态未知 · 整封邮件超限，未下载、不自动回复";
             } else {
                 auto message = parseMessage(client.fetch(uid, qint64(config.maxMessageMb)*1024*1024), config.inlineImages);
                 r.subject = decodeHeader(message.headers.value("subject"));
                 auto selection = selectAttachments(message, config);
-                r.status = selection.status; r.detail = selection.reason;
+                r.status = selection.status;
+                r.detail = (message.attachments.isEmpty() ? QStringLiteral("无附件 · ") : QStringLiteral("有附件 · ")) + selection.reason;
                 if (!selection.accepted.isEmpty()) r.files = saveAttachments(config.outputDir, id, selection.accepted, store);
-                if (r.status == "rejected" && config.reply) recipient = replyAddress(message, config.email);
+                response = planReply(message, selection, r.files.size(), config);
             }
             // Persist the result before any external side effect. A crash can suppress a
             // reply, but will not cause duplicate automatic replies.
-            r.replyState = recipient.isEmpty() ? "none" : "attempted";
+            r.replyState = response.recipient.isEmpty() ? "none" : "attempted";
             store.put(r);
-            if (!recipient.isEmpty()) {
-                QString body = config.rejection;
-                body.replace("{allowed_types}", config.extensions.isEmpty() ? "不限扩展名" : config.extensions.join(", "));
-                body.replace("{reason}", r.detail);
+            if (!response.recipient.isEmpty()) {
                 try {
-                    MailClient::sendReply(config, recipient, body, [this] { return isInterruptionRequested(); });
+                    MailClient::sendReply(config, response.recipient, response.body, [this] { return isInterruptionRequested(); });
                     r.replyState = "sent";
                 } catch (const std::exception &e) {
                     r.replyState = "uncertain";
-                    emit activity("拒收回复未确认，已记录 uncertain；请人工核查，不会自动重发");
+                    emit activity("自动回复未确认，已记录 uncertain；请人工核查，不会自动重发");
                     emit activity("SMTP 详情：" + QString::fromUtf8(e.what()));
                 }
                 store.put(r);
