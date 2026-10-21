@@ -25,7 +25,7 @@ Windows 授权码默认通过当前用户范围的 DPAPI 加密持久保存，JS
 后台线程每轮独立建立 IMAP TLS 会话 → SELECT INBOX → UIDVALIDITY →
 首次建立 UID 基线 → 按 UID 顺序查询后续邮件 → RFC822.SIZE →
 BODY.PEEK[] → MIME 与规则判断 → QSaveFile 原子落盘 →
-SQLite 保存处理结果 → 可选 SMTP 拒收回复 → STORE Seen → 提交进度 → UI/托盘通知。
+SQLite 保存处理结果 → 可选 SMTP 自动回复 → STORE Seen → 提交进度 → UI/托盘通知。
 
 以服务器、端口、账号组成邮箱键，UIDVALIDITY 与 UID 组成消息键；
 不依赖 UNSEEN，避免手机先读导致遗漏。默认跳过首次连接之前的历史邮件。
@@ -41,8 +41,11 @@ SMTP 发送前记录 attempted；发送失败/超时记录 uncertain 且不自�
 
 扩展名白名单（可选 MIME 白名单），任意类型需显式留空；
 matching 保存匹配部分；strict 任一候选不匹配则整封拒收。
-默认忽略内嵌图片，可开启；无附件邮件记录并标记已读，不自动回复。
-拒收表示客户端拒绝保存，非服务器投递退信。模板支持 `{reason}`、`{allowed_types}`。
+默认忽略内嵌图片，可开启；按此选项判断“有附件/无附件”，记录并标记已读。
+ReplyPolicy 按处理结果互斥选择：成功保存附件 / 无附件 / 附件拒收，各有独立开关和文字。
+成功回复只在落盘完成后决定；整封超限未解析则不回复。新开关默认关闭，旧配置兼容。
+三类回复共用同一 attempted/sent/uncertain 持久化流程，不重复回信。
+拒收表示客户端拒绝保存，非服务器投递退信。模板支持 `{reason}`、`{allowed_types}`、`{attachment_count}`。
 禁止回复自动邮件、列表邮件、自己与 no-reply 发件人，避免循环。
 只回复 From 中单个合法邮箱，不使用任意 Reply-To。
 限制邮件/附件大小、MIME 深度和数量；清理文件名，避免路径逃逸与同名覆盖。

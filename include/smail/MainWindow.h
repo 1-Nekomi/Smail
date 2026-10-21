@@ -24,8 +24,10 @@ private:
     QLineEdit *email, *secret, *output, *imap, *smtp, *extensions, *mimeTypes;
     QSpinBox *imapPort, *smtpPort, *interval, *attachmentSize, *messageSize;
     QCheckBox *strict, *inlineImages, *existing, *reply, *rememberSecret;
+    QCheckBox *withAttachmentReply, *withoutAttachmentReply;
     QComboBox *provider;
     QPlainTextEdit *rejection, *log, *history;
+    QPlainTextEdit *withAttachmentMessage, *withoutAttachmentMessage;
     QPushButton *start, *stop;
     QLabel *status;
     QTabWidget *tabs;

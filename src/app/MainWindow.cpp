@@ -12,6 +12,7 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFormLayout>
+#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -76,7 +77,13 @@ MainWindow::MainWindow(QString dir) : dataDir(std::move(dir)) {
     form->addRow("附件保存位置",folderRow); form->addRow("检查间隔",interval); form->addRow(existing);
     auto *hint = new QLabel("QQ 邮箱：请在网页版设置中开启 IMAP/SMTP 并生成授权码。\n默认仅收取首次成功连接之后的新邮件；电脑需保持运行和联网。");
     hint->setWordWrap(true); form->addRow(hint); tabs->addTab(account,"1  邮箱设置");
-    auto *rules = new QWidget; auto *rf = new QFormLayout(rules); rf->setContentsMargins(20,20,20,20); rf->setSpacing(14);
+    auto *rules = new QWidget; auto *rulesLayout = new QHBoxLayout(rules);
+    rulesLayout->setContentsMargins(16,16,16,16); rulesLayout->setSpacing(16);
+    auto *filters = new QGroupBox("附件筛选"); auto *rf = new QFormLayout(filters); rf->setSpacing(14);
+    rf->setRowWrapPolicy(QFormLayout::WrapAllRows);
+    auto *responses = new QGroupBox("自动回复"); auto *responseLayout = new QVBoxLayout(responses);
+    responseLayout->setSpacing(8);
+    rulesLayout->addWidget(filters,1); rulesLayout->addWidget(responses,1);
     extensions = new QLineEdit; extensions->setPlaceholderText("pdf, docx, jpg（留空允许全部扩展名）");
     mimeTypes = new QLineEdit; mimeTypes->setPlaceholderText("可选，如 image/*, application/pdf");
     auto *presets = new QWidget; auto *pl = new QHBoxLayout(presets); pl->setContentsMargins(0,0,0,0);
@@ -88,17 +95,30 @@ MainWindow::MainWindow(QString dir) : dataDir(std::move(dir)) {
             extensions->setText(QString::fromUtf8(label) == "图片" ? images : QString::fromUtf8(label) == "文档" ? docs : images+","+docs);
         });
     }
-    strict = new QCheckBox("任一附件不符就整封拒收（默认仅保存匹配部分）");
-    inlineImages = new QCheckBox("同时收取正文内嵌图片（可能包含签名图标）");
+    strict = new QCheckBox("任一附件不符就整封拒收");
+    strict->setToolTip("未勾选时，仅保存匹配的附件。");
+    inlineImages = new QCheckBox("同时收取正文内嵌图片");
+    inlineImages->setToolTip("可能包含签名图标；未勾选时，只有内嵌图片的邮件视为无附件。");
     attachmentSize = spin(1,200); attachmentSize->setSuffix(" MB");
     messageSize = spin(1,200); messageSize->setSuffix(" MB");
     reply = new QCheckBox("拒收时自动向发件人回复");
-    rejection = new QPlainTextEdit; rejection->setMaximumHeight(120);
+    rejection = new QPlainTextEdit; rejection->setFixedHeight(70);
+    withAttachmentReply = new QCheckBox("有附件：收取成功后自动回复");
+    withoutAttachmentReply = new QCheckBox("无附件：自动回复");
+    withAttachmentMessage = new QPlainTextEdit; withAttachmentMessage->setFixedHeight(70);
+    withoutAttachmentMessage = new QPlainTextEdit; withoutAttachmentMessage->setFixedHeight(70);
     rf->addRow("快捷选择",presets); rf->addRow("扩展名白名单",extensions); rf->addRow("MIME 白名单",mimeTypes);
     rf->addRow(strict); rf->addRow(inlineImages); rf->addRow("单附件上限",attachmentSize); rf->addRow("整封邮件上限",messageSize);
-    rf->addRow(reply); rf->addRow("回复正文",rejection);
-    auto *ruleHint = new QLabel("可用字段：{reason}、{allowed_types}\n拒收不会删除原邮件。无附件、自动邮件、列表邮件及超大邮件不自动回复。");
-    ruleHint->setWordWrap(true); rf->addRow(ruleHint); tabs->addTab(rules,"2  收取规则");
+    responseLayout->addWidget(withAttachmentReply); responseLayout->addWidget(withAttachmentMessage);
+    responseLayout->addWidget(withoutAttachmentReply); responseLayout->addWidget(withoutAttachmentMessage);
+    responseLayout->addWidget(reply); responseLayout->addWidget(rejection);
+    auto *ruleHint = new QLabel("有附件仅在保存成功后回复；附件不合规则使用拒收回复。每封邮件最多自动回复一次。\n可用字段：{attachment_count}（已保存数量）、{reason}、{allowed_types}。");
+    ruleHint->setWordWrap(true); responseLayout->addWidget(ruleHint);
+    auto *safetyHint = new QLabel("自动邮件、列表邮件、自发邮件、no-reply 发件人及整封超限邮件不自动回复。内嵌图片按左侧选项判定。");
+    safetyHint->setWordWrap(true); rf->addRow(safetyHint);
+    auto *saveRules = new QPushButton("保存收取规则"); responseLayout->addWidget(saveRules);
+    responseLayout->addStretch(); tabs->addTab(rules,"2  收取规则");
+    connect(saveRules,&QPushButton::clicked,saveSecret,&QPushButton::click);
     auto *records = new QWidget; auto *rl = new QVBoxLayout(records);
     auto *refresh = new QPushButton("刷新处理历史"); rl->addWidget(refresh);
     history = new QPlainTextEdit; history->setReadOnly(true); rl->addWidget(history,2);
@@ -129,6 +149,8 @@ MainWindow::MainWindow(QString dir) : dataDir(std::move(dir)) {
     connect(start,&QPushButton::clicked,this,&MainWindow::begin);
     connect(stop,&QPushButton::clicked,this,[this] { if (collector) { collector->requestInterruption(); stop->setEnabled(false); status->setText("正在停止…"); } });
     connect(reply,&QCheckBox::toggled,rejection,&QWidget::setEnabled);
+    connect(withAttachmentReply,&QCheckBox::toggled,withAttachmentMessage,&QWidget::setEnabled);
+    connect(withoutAttachmentReply,&QCheckBox::toggled,withoutAttachmentMessage,&QWidget::setEnabled);
     try { fill(Config::load(dataDir+"/settings.json")); }
     catch (const std::exception &e) { fill(Config{}); appendLog(QString::fromUtf8(e.what())); }
     loadSecret();
@@ -169,6 +191,12 @@ void MainWindow::fill(const Config &c) {
     existing->setChecked(c.includeExisting); reply->setChecked(c.reply); rejection->setPlainText(c.rejection);
     rejection->setEnabled(c.reply); attachmentSize->setValue(c.maxAttachmentMb); messageSize->setValue(c.maxMessageMb);
     rememberSecret->setChecked(CredentialStore::supported() && c.rememberSecret);
+    withAttachmentReply->setChecked(c.withAttachmentReply);
+    withoutAttachmentReply->setChecked(c.withoutAttachmentReply);
+    withAttachmentMessage->setPlainText(c.withAttachmentMessage);
+    withoutAttachmentMessage->setPlainText(c.withoutAttachmentMessage);
+    withAttachmentMessage->setEnabled(c.withAttachmentReply);
+    withoutAttachmentMessage->setEnabled(c.withoutAttachmentReply);
 }
 Config MainWindow::readConfig() const {
     Config c; c.email = email->text().trimmed(); c.secret = secret->text();
@@ -178,6 +206,10 @@ Config MainWindow::readConfig() const {
     c.strict = strict->isChecked(); c.inlineImages = inlineImages->isChecked(); c.includeExisting = existing->isChecked();
     c.reply = reply->isChecked(); c.rejection = rejection->toPlainText();
     c.rememberSecret = rememberSecret->isChecked();
+    c.withAttachmentReply = withAttachmentReply->isChecked();
+    c.withoutAttachmentReply = withoutAttachmentReply->isChecked();
+    c.withAttachmentMessage = withAttachmentMessage->toPlainText();
+    c.withoutAttachmentMessage = withoutAttachmentMessage->toPlainText();
     c.maxAttachmentMb = attachmentSize->value(); c.maxMessageMb = messageSize->value(); return c;
 }
 void MainWindow::begin() {
