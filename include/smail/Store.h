@@ -16,6 +16,9 @@ public:
     Store &operator=(const Store &) = delete;
     QString checkpoint(const QString &key);
     void checkpoint(const QString &key, const QString &value);
+    QVector<quint64> pendingUnread(const QString &key);
+    void queueUnread(const QString &key, const QVector<quint64> &uids);
+    void completeUid(const QString &key, quint64 uid);
     Record record(const QString &id);
     void put(const Record &record);
     QString reserveSinglePath(const QString &messageId, const QString &root, const QString &name);

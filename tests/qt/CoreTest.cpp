@@ -13,6 +13,27 @@ using namespace smail;
 class CoreTest : public QObject {
     Q_OBJECT
 private slots:
+    void startupUnreadSurvivesRestartAndKeepsCursor() {
+        QTemporaryDir temp;
+        const auto path = temp.path() + "/unread.sqlite";
+        {
+            Store store(path);
+            store.checkpoint("box", "100");
+            store.queueUnread("box", {9, 3, 9, 105});
+            store.completeUid("box", 3);
+            QCOMPARE(store.checkpoint("box"), QString("100"));
+        }
+        Store store(path);
+        QCOMPARE(store.pendingUnread("box"), QVector<quint64>({9, 105}));
+        store.queueUnread("box", {9, 20});
+        QCOMPARE(store.pendingUnread("box"), QVector<quint64>({9, 20, 105}));
+        QVERIFY(store.pendingUnread("other-validity").isEmpty());
+        store.completeUid("box", 9); // Also used when an old message was deleted.
+        store.completeUid("box", 20);
+        store.completeUid("box", 105);
+        QCOMPARE(store.checkpoint("box"), QString("105"));
+        QVERIFY(store.pendingUnread("box").isEmpty());
+    }
     void mimeAndRules() {
         auto m = parseMessage("Received: by relay2\r\nReceived: by relay1\r\nFrom: Test <sender@example.com>\r\nSubject: test\r\nContent-Type: multipart/mixed; boundary=\"b\"\r\n\r\n"
             "--b\r\nContent-Type: text/plain\r\n\r\nhello\r\n"
@@ -141,6 +162,58 @@ private slots:
         m.headers["from"]="me@example.com"; QVERIFY(replyAddress(m,"me@example.com").isEmpty());
         m.headers["from"]="no-reply@example.com"; QVERIFY(replyAddress(m,"me@example.com").isEmpty());
         m.headers["from"]="a@example.com"; m.headers["list-id"]="list"; QVERIFY(replyAddress(m,"me@example.com").isEmpty());
+    }
+    void displayNameEmailIsNotAnotherSender() {
+        Config c; c.email="collector@example.com"; c.withoutAttachmentReply=true; c.withAttachmentReply=true;
+        Message m; m.headers["from"]="\"sender@example.com\" <sender@example.com>";
+        QCOMPARE(replyAddress(m,c.email),QString("sender@example.com"));
+        QCOMPARE(planReply(m,selectAttachments(m,c),0,c).recipient,QString("sender@example.com"));
+        m.attachments={{"a.pdf","application/pdf","pdf"}};
+        QCOMPARE(planReply(m,selectAttachments(m,c),1,c).recipient,QString("sender@example.com"));
+        m.headers["from"]="sender@example.com <sender@example.com>";
+        QCOMPARE(replyAddress(m,c.email),QString("sender@example.com"));
+        m.headers["from"]="\"alias@example.com, support\" <sender@example.com>";
+        QCOMPARE(replyAddress(m,c.email),QString("sender@example.com"));
+        m.headers["from"]="a@example.com, Other <b@example.com>";
+        QVERIFY(replyAddress(m,c.email).isEmpty());
+        m.headers["from"]="<a@example.com>, <b@example.com>";
+        QVERIFY(replyAddress(m,c.email).isEmpty());
+        m.headers["from"]="\"sender@example.com\" <collector@example.com>";
+        auto plan=planReply(m,selectAttachments(m,c),1,c);
+        QVERIFY(plan.recipient.isEmpty()); QVERIFY(plan.skipReason.contains("自发邮件"));
+        // Formats observed in real QQ/163/Gmail mailboxes.
+        m.headers["from"]="\"nekomi.typedef@gmail.com\" <nekomi.typedef@gmail.com>";
+        QCOMPARE(replyAddress(m,c.email),QString("nekomi.typedef@gmail.com"));
+        m.headers["from"]="\"=?utf-8?B?5oCd?=\" <1502410295@qq.com>";
+        QCOMPARE(replyAddress(m,c.email),QString("1502410295@qq.com"));
+        m.headers["from"]="=?GBK?B?wu27osH6?= <18683423521@163.com>";
+        QCOMPARE(replyAddress(m,c.email),QString("18683423521@163.com"));
+    }
+    void skippedRepliesExplainWhy() {
+        Config c; c.email="collector@example.com";
+        Message m; m.headers["from"]="sender@example.com";
+        auto selection=selectAttachments(m,c);
+        auto plan=planReply(m,selection,0,c);
+        QVERIFY(plan.recipient.isEmpty()); QCOMPARE(plan.skipReason,QString("无附件回复未启用"));
+        c.withoutAttachmentReply=true; c.withoutAttachmentMessage="请补发附件";
+        plan=planReply(m,selection,0,c);
+        QCOMPARE(plan.recipient,QString("sender@example.com")); QCOMPARE(plan.body,c.withoutAttachmentMessage);
+        m.attachments={{"a.pdf","application/pdf","pdf"}};
+        selection=selectAttachments(m,c);
+        plan=planReply(m,selection,1,c);
+        QVERIFY(plan.recipient.isEmpty()); QCOMPARE(plan.skipReason,QString("有附件回复未启用"));
+        c.withAttachmentReply=true; c.withAttachmentMessage="已收取";
+        plan=planReply(m,selection,1,c); QCOMPARE(plan.recipient,QString("sender@example.com"));
+        m.attachments.push_back({"b.exe","application/octet-stream","exe"});
+        c.strict=true; selection=selectAttachments(m,c);
+        plan=planReply(m,selection,0,c);
+        QVERIFY(plan.recipient.isEmpty()); QCOMPARE(plan.skipReason,QString("拒收回复未启用"));
+        c.reply=true; c.rejection="拒收：{reason}";
+        plan=planReply(m,selection,0,c);
+        QCOMPARE(plan.recipient,QString("sender@example.com")); QVERIFY(plan.body.startsWith("拒收："));
+        m.headers["auto-submitted"]="auto-replied";
+        plan=planReply(m,selection,0,c);
+        QVERIFY(plan.recipient.isEmpty()); QVERIFY(plan.skipReason.contains("自动邮件"));
     }
     void replyRulesAreExclusiveAndRequireSavedFiles() {
         Config c; c.email="me@qq.com";

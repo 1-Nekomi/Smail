@@ -15,6 +15,7 @@ protected:
 private:
     Config config;
     QString statePath;
+    QString scannedMailbox;
     void poll();
 };
 }

@@ -111,6 +111,9 @@ QVector<quint64> MailClient::search(quint64 after) {
     if (after >= 4294967295ULL) return {};
     return parseSearch(command(after ? "UID SEARCH UID " + QByteArray::number(after+1) + ":*" : "UID SEARCH ALL").lines, after);
 }
+QVector<quint64> MailClient::searchUnread() {
+    return parseSearch(command("UID SEARCH UNSEEN").lines, 0);
+}
 qint64 MailClient::messageSize(quint64 uid) {
     auto r = command("UID FETCH " + QByteArray::number(uid) + " (RFC822.SIZE)");
     auto m = QRegularExpression(R"(RFC822\.SIZE (\d+))", QRegularExpression::CaseInsensitiveOption).match(QString::fromLatin1(r.lines));
@@ -122,6 +125,12 @@ QByteArray MailClient::fetch(quint64 uid, qint64 limit) {
     return r.literals.first();
 }
 void MailClient::markRead(quint64 uid) { command("UID STORE " + QByteArray::number(uid) + " +FLAGS.SILENT (\\Seen)"); }
+QByteArray MailClient::fetchReplyHeaders(quint64 uid) {
+    auto r = command("UID FETCH " + QByteArray::number(uid) +
+        " (BODY.PEEK[HEADER.FIELDS (FROM AUTO-SUBMITTED LIST-ID LIST-UNSUBSCRIBE X-AUTO-RESPONSE-SUPPRESS RETURN-PATH PRECEDENCE)])", 65536);
+    if (r.literals.size() != 1) fail("无法读取回复诊断所需的邮件头部");
+    return r.literals.first();
+}
 int MailClient::smtpResponse() {
     int code = 0;
     for (int count = 0; count < 100; ++count) {
@@ -130,6 +139,7 @@ int MailClient::smtpResponse() {
         bool ok; int current = l.left(3).toInt(&ok);
         if (!ok || (code && current != code)) fail("SMTP 响应无效");
         code = current;
+        lastSmtpResponse = l.trimmed();
         if (l[3] == ' ') return code;
         if (l[3] != '-') fail("SMTP 响应无效");
     }
@@ -137,29 +147,61 @@ int MailClient::smtpResponse() {
 }
 void MailClient::smtp(const QByteArray &cmd, int expected) {
     write(cmd + "\r\n");
-    if (smtpResponse() != expected) fail("SMTP 操作失败，请检查授权码或发信权限");
+    const int code = smtpResponse();
+    if (code != expected)
+        fail(QString("SMTP 操作失败（服务器返回 %1，期望 %2）：%3")
+                 .arg(code).arg(expected).arg(QString::fromUtf8(lastSmtpResponse)));
+}
+void MailClient::smtpConnectAndLogin(const Config &c) {
+    try {
+        connectTls(c.smtpHost, c.smtpPort);
+    } catch (const std::exception &e) {
+        const QString detail = QString::fromUtf8(e.what());
+        if (detail.contains("收取已停止")) fail(detail);
+        // SMTP is commonly blocked by campus networks, firewalls and VPN/proxy
+        // rules while IMAP still works. Make that actionable instead of
+        // reporting only "Remote host closed".
+        fail(detail + QString("；请检查网络、防火墙或 VPN/代理是否允许访问 SMTP %1:%2"
+                              "（QQ 邮箱常用 465；若使用 Clash 等全局代理，请切换到规则/直连模式，"
+                              "或将 %1 设为直连，也可暂时关闭代理）")
+                           .arg(c.smtpHost).arg(c.smtpPort));
+    }
+    if (smtpResponse() != 220) fail("SMTP 服务未就绪（未收到 220 欢迎响应）");
+    smtp("EHLO smail.local", 250);
+    smtp("AUTH LOGIN", 334);
+    smtp(c.email.toUtf8().toBase64(), 334);
+    smtp(c.secret.toUtf8().toBase64(), 235);
 }
 void MailClient::sendReply(const Config &c, const QString &to, const QString &body, std::function<bool()> cancel) {
     if (to.contains('\r') || to.contains('\n') || to.contains('<') || to.contains('>')) fail("回复地址无效");
     MailClient client(std::move(cancel));
-    client.connectTls(c.smtpHost, c.smtpPort);
-    if (client.smtpResponse() != 220) fail("SMTP 服务未就绪");
-    client.smtp("EHLO smail.local", 250);
-    client.smtp("AUTH LOGIN", 334);
-    client.smtp(c.email.toUtf8().toBase64(), 334);
-    client.smtp(c.secret.toUtf8().toBase64(), 235);
+    client.smtpConnectAndLogin(c);
     client.smtp("MAIL FROM:<" + c.email.toUtf8() + ">", 250);
     client.smtp("RCPT TO:<" + to.toUtf8() + ">", 250);
     client.smtp("DATA", 354);
+    QString domain = c.email.section('@', 1).trimmed();
+    if (!QRegularExpression("^[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$").match(domain).hasMatch())
+        domain = "smail.local";
     QByteArray message = "From: <" + c.email.toUtf8() + ">\r\nTo: <" + to.toUtf8()
         + ">\r\nSubject: =?UTF-8?B?" + QStringLiteral("Smail 附件收取结果").toUtf8().toBase64()
         + "?=\r\nDate: " + QLocale::c().toString(QDateTime::currentDateTimeUtc(), "ddd, dd MMM yyyy HH:mm:ss '+0000'").toLatin1()
         + "\r\nMessage-ID: <" + QUuid::createUuid().toString(QUuid::WithoutBraces).toLatin1()
-        + "@smail.local>\r\nAuto-Submitted: auto-replied\r\nX-Auto-Response-Suppress: All\r\n"
+        + "@" + domain.toLatin1() + ">\r\nAuto-Submitted: auto-replied\r\nX-Auto-Response-Suppress: All\r\n"
           "MIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n";
     auto encoded = body.toUtf8().toBase64();
     for (qsizetype i = 0; i < encoded.size(); i += 76) message += encoded.mid(i,76) + "\r\n";
     client.write(message + ".\r\n");
-    if (client.smtpResponse() != 250) fail("SMTP 未确认接收回复");
+    const int confirmation = client.smtpResponse();
+    if (confirmation != 250)
+        fail(QString("SMTP 未确认接收回复（服务器返回 %1）：%2")
+                 .arg(confirmation).arg(QString::fromUtf8(client.lastSmtpResponse)));
+    // The reply is already accepted; a failed QUIT must not turn it into an
+    // "uncertain" result.
+    try { client.write("QUIT\r\n"); client.smtpResponse(); } catch (const std::exception &) {}
+}
+void MailClient::testSmtp(const Config &c, std::function<bool()> cancel) {
+    MailClient client(std::move(cancel));
+    client.smtpConnectAndLogin(c);
+    try { client.write("QUIT\r\n"); client.smtpResponse(); } catch (const std::exception &) {}
 }
 }

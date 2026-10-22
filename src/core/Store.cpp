@@ -10,6 +10,7 @@
 #include <QSqlError>
 #include <QUuid>
 #include <QVariant>
+#include <algorithm>
 
 namespace smail {
 namespace {
@@ -35,6 +36,34 @@ QString Store::checkpoint(const QString &key) {
 }
 void Store::checkpoint(const QString &key, const QString &value) {
     QSqlQuery q(db); q.prepare("INSERT OR REPLACE INTO checkpoint VALUES (?,?)"); q.addBindValue(key); q.addBindValue(value); check(q);
+}
+QVector<quint64> Store::pendingUnread(const QString &key) {
+    QVector<quint64> result;
+    for (const auto &v : QJsonDocument::fromJson(checkpoint(key + "/startup-unread").toUtf8()).array())
+        result << v.toString().toULongLong();
+    return result;
+}
+void Store::queueUnread(const QString &key, const QVector<quint64> &uids) {
+    auto pending = pendingUnread(key);
+    pending += uids;
+    std::sort(pending.begin(), pending.end());
+    pending.erase(std::unique(pending.begin(), pending.end()), pending.end());
+    QJsonArray values;
+    for (auto uid : pending) values.append(QString::number(uid));
+    checkpoint(key + "/startup-unread", QString::fromUtf8(QJsonDocument(values).toJson(QJsonDocument::Compact)));
+}
+void Store::completeUid(const QString &key, quint64 uid) {
+    if (!db.transaction()) fail("无法开始邮件进度事务");
+    try {
+        // Old unread messages must never move the new-message cursor backwards.
+        checkpoint(key, QString::number(qMax(checkpoint(key).toULongLong(), uid)));
+        auto pending = pendingUnread(key);
+        pending.removeAll(uid);
+        QJsonArray values;
+        for (auto item : pending) values.append(QString::number(item));
+        checkpoint(key + "/startup-unread", QString::fromUtf8(QJsonDocument(values).toJson(QJsonDocument::Compact)));
+        if (!db.commit()) fail("无法保存邮件进度");
+    } catch (...) { db.rollback(); throw; }
 }
 Record Store::record(const QString &id) {
     Record r; r.id = id;

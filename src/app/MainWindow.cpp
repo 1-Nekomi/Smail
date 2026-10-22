@@ -2,6 +2,7 @@
 #include "smail/Collector.h"
 #include "smail/Store.h"
 #include "smail/CredentialStore.h"
+#include "smail/MailClient.h"
 #include <QApplication>
 #include <QCheckBox>
 #include <QCloseEvent>
@@ -25,6 +26,7 @@
 #include <QStyle>
 #include <QSystemTrayIcon>
 #include <QTabWidget>
+#include <QThread>
 #include <QUrl>
 #include <QVBoxLayout>
 
@@ -75,7 +77,7 @@ MainWindow::MainWindow(QString dir) : dataDir(std::move(dir)) {
     form->addRow("IMAP 服务器",imap); form->addRow("IMAP TLS 端口",imapPort);
     form->addRow("SMTP 服务器",smtp); form->addRow("SMTP TLS 端口",smtpPort);
     form->addRow("附件保存位置",folderRow); form->addRow("检查间隔",interval); form->addRow(existing);
-    auto *hint = new QLabel("QQ 邮箱：请在网页版设置中开启 IMAP/SMTP 并生成授权码。\n默认仅收取首次成功连接之后的新邮件；电脑需保持运行和联网。");
+    auto *hint = new QLabel("QQ 邮箱：请在网页版设置中开启 IMAP/SMTP 并生成授权码。\n每次开始收取会处理收件箱中未处理过的未读邮件，然后持续收取新邮件；电脑需保持运行和联网。");
     hint->setWordWrap(true); form->addRow(hint); tabs->addTab(account,"1  邮箱设置");
     auto *rules = new QWidget; auto *rulesLayout = new QHBoxLayout(rules);
     rulesLayout->setContentsMargins(16,16,16,16); rulesLayout->setSpacing(16);
@@ -116,11 +118,51 @@ MainWindow::MainWindow(QString dir) : dataDir(std::move(dir)) {
     ruleHint->setWordWrap(true); responseLayout->addWidget(ruleHint);
     auto *safetyHint = new QLabel("自动邮件、列表邮件、自发邮件、no-reply 发件人及整封超限邮件不自动回复。内嵌图片按左侧选项判定。");
     safetyHint->setWordWrap(true); rf->addRow(safetyHint);
+    auto *testSmtp = new QPushButton("测试 SMTP 发信连接");
+    testSmtp->setToolTip("只连接并登录 SMTP，不发送邮件；用于检查网络或代理是否允许发信。");
+    responseLayout->addWidget(testSmtp);
+    auto *smtpHint = new QLabel("回复经 SMTP 发送。若测试失败，请检查 VPN/代理（如 Clash 全局模式）或防火墙是否封禁 465 端口。");
+    smtpHint->setWordWrap(true); responseLayout->addWidget(smtpHint);
     auto *saveRules = new QPushButton("保存收取规则"); responseLayout->addWidget(saveRules);
     responseLayout->addStretch(); tabs->addTab(rules,"2  收取规则");
     connect(saveRules,&QPushButton::clicked,saveSecret,&QPushButton::click);
+    connect(testSmtp,&QPushButton::clicked,this,[this,testSmtp] {
+        if (smtpProbe) return;
+        auto c = readConfig();
+        if (c.secret.isEmpty()) {
+            try { c.secret = CredentialStore(dataDir+"/credentials").load(c); }
+            catch (const std::exception &e) { QMessageBox::warning(this,"无法读取授权码",QString::fromUtf8(e.what())); return; }
+        }
+        auto error = c.validate();
+        if (!error.isEmpty()) { QMessageBox::warning(this,"配置需要调整",error); return; }
+        smtpProbeCancelled.store(false);
+        testSmtp->setEnabled(false);
+        appendLog(QString("正在测试 SMTP %1:%2（仅登录，不发送邮件）…").arg(c.smtpHost).arg(c.smtpPort));
+        auto *thread = QThread::create([this,c] {
+            QString result;
+            try {
+                MailClient::testSmtp(c, [this] { return smtpProbeCancelled.load(); });
+                result = "SMTP 连接与登录成功（未发送邮件）。";
+            } catch (const std::exception &e) {
+                result = "SMTP 测试失败：" + QString::fromUtf8(e.what());
+            }
+            QMetaObject::invokeMethod(this, [this,result] {
+                appendLog(result);
+                QMessageBox::information(this,"SMTP 测试",result);
+            }, Qt::QueuedConnection);
+        });
+        smtpProbe = thread;
+        connect(thread,&QThread::finished,this,[this,thread,testSmtp] {
+            if (smtpProbe == thread) smtpProbe = nullptr;
+            testSmtp->setEnabled(true);
+            thread->deleteLater();
+        });
+        thread->start();
+    });
     auto *records = new QWidget; auto *rl = new QVBoxLayout(records);
     auto *refresh = new QPushButton("刷新处理历史"); rl->addWidget(refresh);
+    auto *historyHint = new QLabel("每次开始收取会按当前规则回复尚未处理的未读邮件。有附件、无附件分别使用对应文字；已有处理记录不重复回复，未回复原因显示在记录中。");
+    historyHint->setWordWrap(true); rl->addWidget(historyHint);
     history = new QPlainTextEdit; history->setReadOnly(true); rl->addWidget(history,2);
     rl->addWidget(new QLabel("运行日志")); log = new QPlainTextEdit; log->setReadOnly(true); log->setMaximumBlockCount(500); rl->addWidget(log,1);
     tabs->addTab(records,"3  运行记录");
@@ -180,7 +222,10 @@ MainWindow::MainWindow(QString dir) : dataDir(std::move(dir)) {
     });
     refreshHistory();
 }
-MainWindow::~MainWindow() { if (collector) { collector->requestInterruption(); collector->wait(); } }
+MainWindow::~MainWindow() {
+    if (collector) { collector->requestInterruption(); collector->wait(); }
+    if (smtpProbe) { smtpProbeCancelled.store(true); smtpProbe->wait(); }
+}
 void MainWindow::fill(const Config &c) {
     provider->setCurrentIndex(c.imapHost == "imap.qq.com" ? 0 : 1);
     email->setText(c.email); imap->setText(c.imapHost); smtp->setText(c.smtpHost);

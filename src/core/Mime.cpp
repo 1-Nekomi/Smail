@@ -166,20 +166,39 @@ QString safeName(QString name) {
     if (name.size() > 120) name = name.left(95) + "." + QFileInfo(name).suffix().left(20);
     return name;
 }
-QString replyAddress(const Message &m, const QString &self) {
+QString replyAddress(const Message &m, const QString &self, QString *skipReason) {
+    if (skipReason) skipReason->clear();
+    auto reject = [&](const QString &reason) { if (skipReason) *skipReason = reason; return QString(); };
     const auto &h = m.headers;
     if ((!h.value("auto-submitted").isEmpty() && h.value("auto-submitted").toLower() != "no")
         || h.contains("list-id") || h.contains("list-unsubscribe") || h.contains("x-auto-response-suppress")
-        || h.value("return-path") == "<>" || h.contains("precedence")) return {};
+        || h.value("return-path") == "<>" || h.contains("precedence"))
+        return reject("自动邮件、列表邮件或自动回复抑制标记");
     QString from = QString::fromUtf8(h.value("from")).trimmed();
-    static const QRegularExpression address(R"([A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})");
-    auto matches = address.globalMatch(from);
-    if (!matches.hasNext()) return {};
-    auto match = matches.next(); QString result = match.captured();
-    if (matches.hasNext() || result.compare(self, Qt::CaseInsensitive) == 0
-        || result.contains(QRegularExpression("no.?reply|mailer-daemon|postmaster", QRegularExpression::CaseInsensitiveOption))) return {};
-    // Accept a bare address or one display-name mailbox enclosed in angle brackets.
-    if (from != result && !from.endsWith("<" + result + ">")) return {};
+    static const QRegularExpression address(R"(^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$)");
+    QString result = from;
+    if (from.contains('<') || from.contains('>')) {
+        // A mailbox's display name may itself be an email address. Only the
+        // angle-addr is the actual mailbox: "sender@example.com" <sender@example.com>.
+        if (from.count('<') != 1 || from.count('>') != 1 || !from.endsWith('>'))
+            return reject("发件人字段不是单个邮箱");
+        auto opening = from.indexOf('<');
+        QString display = from.left(opening);
+        bool quoted = false, escaped = false;
+        for (QChar ch : display) {
+            if (escaped) { escaped = false; continue; }
+            if (quoted && ch == '\\') { escaped = true; continue; }
+            if (ch == '"') { quoted = !quoted; continue; }
+            if ((!quoted && (ch == ',' || ch == ';' || ch == ':' || ch == '>' || ch == '(' || ch == ')'))
+                || ch == '\r' || ch == '\n') return reject("发件人字段不是单个邮箱");
+        }
+        if (quoted || escaped) return reject("发件人显示名称格式异常");
+        result = from.mid(opening + 1, from.size() - opening - 2).trimmed();
+    }
+    if (!address.match(result).hasMatch()) return reject("无法识别单个有效发件人邮箱");
+    if (result.compare(self.trimmed(), Qt::CaseInsensitive) == 0) return reject("自发邮件，避免自动回复循环");
+    if (result.contains(QRegularExpression("no.?reply|mailer-daemon|postmaster", QRegularExpression::CaseInsensitiveOption)))
+        return reject("发件人属于 no-reply 或系统邮箱");
     return result;
 }
 }

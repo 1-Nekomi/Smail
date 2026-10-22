@@ -1,6 +1,7 @@
 #pragma once
 #include "smail/Config.h"
 #include <QMainWindow>
+#include <atomic>
 class QLineEdit;
 class QSpinBox;
 class QCheckBox;
@@ -10,6 +11,7 @@ class QPushButton;
 class QLabel;
 class QSystemTrayIcon;
 class QTabWidget;
+class QThread;
 namespace smail {
 class Collector;
 class MainWindow : public QMainWindow {
@@ -33,6 +35,8 @@ private:
     QTabWidget *tabs;
     QSystemTrayIcon *tray;
     Collector *collector = nullptr;
+    QThread *smtpProbe = nullptr;
+    std::atomic_bool smtpProbeCancelled{false};
     Config readConfig() const;
     void fill(const Config &config);
     void begin();
