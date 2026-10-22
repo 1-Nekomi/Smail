@@ -48,6 +48,11 @@ matching 保存匹配部分；strict 任一候选不匹配则整封拒收。
 ReplyPolicy 按处理结果互斥选择：成功保存附件 / 无附件 / 附件拒收，各有独立开关和文字。
 成功回复只在落盘完成后决定；整封超限未解析则不回复。新开关默认关闭，旧配置兼容。
 三类回复共用同一 attempted/sent/uncertain 持久化流程，不重复回信。
+每类回复独立保存主题及本地附件路径。ReplyMessage 在记录 attempted 前完整校验并组装邮件，
+文件缺失等本地错误保持可重试；SMTP 接收结果不明仍不自动重发。
+正文和附件使用 MIME Base64，中文主题分段编码，附件文件名用 RFC 2231 延续参数；
+图片按 attachment 发送。出站最多 20 个文件、原始总量 25 MB，与入站筛选独立。
+格式依据：[RFC 2045](https://www.rfc-editor.org/rfc/rfc2045)、[RFC 2231](https://www.rfc-editor.org/rfc/rfc2231)。
 拒收表示客户端拒绝保存，非服务器投递退信。模板支持 `{reason}`、`{allowed_types}`、`{attachment_count}`。
 禁止回复自动邮件、列表邮件、自己与 no-reply 发件人，避免循环。
 只回复 From 中单个合法邮箱，不使用任意 Reply-To。

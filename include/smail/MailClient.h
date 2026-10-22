@@ -19,6 +19,8 @@ public:
     void markRead(quint64 uid);
     static void sendReply(const Config &config, const QString &to, const QString &body,
                           std::function<bool()> cancelled = {});
+    static void sendPreparedReply(const Config &config, const QString &to, const QByteArray &message,
+                                  std::function<bool()> cancelled = {});
     // Connects, authenticates and disconnects without sending a message.
     static void testSmtp(const Config &config, std::function<bool()> cancelled = {});
     static QVector<quint64> parseSearch(const QByteArray &lines, quint64 after);

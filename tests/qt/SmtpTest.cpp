@@ -15,6 +15,7 @@ class SmtpWorker : public QThread {
 public:
     std::promise<quint16> port;
     QByteArray message, recipient;
+    QList<QByteArray> messages;
     bool accepted = false, authenticated = false;
     int deliveries = 0;
 protected:
@@ -46,6 +47,7 @@ protected:
                         if (line == ".\r\n") {
                             accepted = true;
                             ++deliveries;
+                            messages << message;
                             *phase = 5;
                             socket->write("250 accepted\r\n");
                         } else message += line;
@@ -67,6 +69,7 @@ protected:
                         recipient = line.trimmed();
                         socket->write("250 ok\r\n");
                     } else if (line == "DATA\r\n") {
+                        message.clear();
                         *phase = 4;
                         socket->write("354 send data\r\n");
                     } else if (line == "QUIT\r\n") {
@@ -175,6 +178,13 @@ private slots:
         c.withAttachmentReply = c.withoutAttachmentReply = true;
         c.withAttachmentMessage = "attachment-received";
         c.withoutAttachmentMessage = "no-attachment-received";
+        c.withAttachmentSubject = "收取完成：中文主题";
+        c.withoutAttachmentSubject = "请补发附件：中文主题";
+        QFile replyFile(temp.filePath("说明图片.png"));
+        QVERIFY(replyFile.open(QIODevice::WriteOnly));
+        const QByteArray replyBytes = QByteArray::fromHex("89504e470d0a1a0a0000ff");
+        replyFile.write(replyBytes); replyFile.close();
+        c.withAttachmentFiles = c.withoutAttachmentFiles = {replyFile.fileName()};
         const QString path = temp.path() + "/history.sqlite";
         // accountKey includes the port, so populate history after the listener starts.
         QSslServer imap;
@@ -249,6 +259,13 @@ private slots:
         QCOMPARE(fetched, QList<quint64>({2, 3, 11}));
         QCOMPARE(marked, QList<quint64>({2, 3, 11}));
         QCOMPARE(smtp.deliveries, 3);
+        for (int i = 0; i < smtp.messages.size(); ++i) {
+            auto parsed = smail::parseMessage(smtp.messages[i]);
+            QCOMPARE(smail::decodeHeader(parsed.headers.value("subject")), i == 0 ? c.withAttachmentSubject : c.withoutAttachmentSubject);
+            QCOMPARE(parsed.attachments.size(), 1);
+            QCOMPARE(parsed.attachments[0].name, QString("说明图片.png"));
+            QCOMPARE(parsed.attachments[0].data, replyBytes);
+        }
         QVERIFY(unexpected.isEmpty());
         smail::Store store(path);
         QCOMPARE(store.checkpoint(box), QString("11"));

@@ -1,4 +1,5 @@
 #include "smail/MailClient.h"
+#include "smail/ReplyMessage.h"
 #include "smail/TlsConnection.h"
 #include <QElapsedTimer>
 #include <QRegularExpression>
@@ -173,23 +174,15 @@ void MailClient::smtpConnectAndLogin(const Config &c) {
     smtp(c.secret.toUtf8().toBase64(), 235);
 }
 void MailClient::sendReply(const Config &c, const QString &to, const QString &body, std::function<bool()> cancel) {
+    sendPreparedReply(c, to, composeReply(c.email, to, QStringLiteral("Smail 附件收取结果"), body), std::move(cancel));
+}
+void MailClient::sendPreparedReply(const Config &c, const QString &to, const QByteArray &message, std::function<bool()> cancel) {
     if (to.contains('\r') || to.contains('\n') || to.contains('<') || to.contains('>')) fail("回复地址无效");
     MailClient client(std::move(cancel));
     client.smtpConnectAndLogin(c);
     client.smtp("MAIL FROM:<" + c.email.toUtf8() + ">", 250);
     client.smtp("RCPT TO:<" + to.toUtf8() + ">", 250);
     client.smtp("DATA", 354);
-    QString domain = c.email.section('@', 1).trimmed();
-    if (!QRegularExpression("^[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$").match(domain).hasMatch())
-        domain = "smail.local";
-    QByteArray message = "From: <" + c.email.toUtf8() + ">\r\nTo: <" + to.toUtf8()
-        + ">\r\nSubject: =?UTF-8?B?" + QStringLiteral("Smail 附件收取结果").toUtf8().toBase64()
-        + "?=\r\nDate: " + QLocale::c().toString(QDateTime::currentDateTimeUtc(), "ddd, dd MMM yyyy HH:mm:ss '+0000'").toLatin1()
-        + "\r\nMessage-ID: <" + QUuid::createUuid().toString(QUuid::WithoutBraces).toLatin1()
-        + "@" + domain.toLatin1() + ">\r\nAuto-Submitted: auto-replied\r\nX-Auto-Response-Suppress: All\r\n"
-          "MIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n";
-    auto encoded = body.toUtf8().toBase64();
-    for (qsizetype i = 0; i < encoded.size(); i += 76) message += encoded.mid(i,76) + "\r\n";
     client.write(message + ".\r\n");
     const int confirmation = client.smtpResponse();
     if (confirmation != 250)

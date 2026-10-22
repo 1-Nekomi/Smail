@@ -1,4 +1,6 @@
 #include "smail/Config.h"
+#include "smail/ReplyMessage.h"
+#include <tuple>
 #include <QCryptographicHash>
 #include <QFile>
 #include <QJsonArray>
@@ -21,6 +23,14 @@ QString Config::validate() const {
     if (reply && rejection.trimmed().isEmpty()) return QStringLiteral("请填写拒收回复内容。");
     if (withAttachmentReply && withAttachmentMessage.trimmed().isEmpty()) return QStringLiteral("请填写有附件时的回复内容。");
     if (withoutAttachmentReply && withoutAttachmentMessage.trimmed().isEmpty()) return QStringLiteral("请填写无附件时的回复内容。");
+    for (const auto &item : {std::make_tuple(withAttachmentReply, withAttachmentSubject, withAttachmentFiles),
+                            std::make_tuple(withoutAttachmentReply, withoutAttachmentSubject, withoutAttachmentFiles),
+                            std::make_tuple(reply, rejectionSubject, rejectionFiles)}) {
+        if (!std::get<0>(item)) continue;
+        auto error = validateReplySubject(std::get<1>(item));
+        if (error.isEmpty()) error = validateReplyFiles(std::get<2>(item));
+        if (!error.isEmpty()) return error;
+    }
     for (const auto &ext : extensions)
         if (!QRegularExpression("^[a-z0-9]+$").match(ext).hasMatch()) return QStringLiteral("扩展名应为 pdf、docx 等，用逗号分隔。");
     for (const auto &mime : mimeTypes)
@@ -40,7 +50,11 @@ void Config::save(const QString &path) const {
         {"strict", strict}, {"inlineImages", inlineImages}, {"includeExisting", includeExisting},
         {"reply", reply}, {"rejection", rejection}, {"rememberSecret", rememberSecret},
         {"withAttachmentReply", withAttachmentReply}, {"withoutAttachmentReply", withoutAttachmentReply},
-        {"withAttachmentMessage", withAttachmentMessage}, {"withoutAttachmentMessage", withoutAttachmentMessage}};
+        {"withAttachmentMessage", withAttachmentMessage}, {"withoutAttachmentMessage", withoutAttachmentMessage},
+        {"withAttachmentSubject", withAttachmentSubject}, {"withoutAttachmentSubject", withoutAttachmentSubject},
+        {"rejectionSubject", rejectionSubject}, {"withAttachmentFiles", QJsonArray::fromStringList(withAttachmentFiles)},
+        {"withoutAttachmentFiles", QJsonArray::fromStringList(withoutAttachmentFiles)},
+        {"rejectionFiles", QJsonArray::fromStringList(rejectionFiles)}};
     QSaveFile f(path);
     const auto data = QJsonDocument(o).toJson();
     if (!f.open(QIODevice::WriteOnly) || f.write(data) != data.size() || !f.commit()) fail("无法保存配置");
@@ -69,6 +83,12 @@ Config Config::load(const QString &path) {
     c.withoutAttachmentReply = o["withoutAttachmentReply"].toBool(false);
     c.withAttachmentMessage = o["withAttachmentMessage"].toString(c.withAttachmentMessage);
     c.withoutAttachmentMessage = o["withoutAttachmentMessage"].toString(c.withoutAttachmentMessage);
+    c.withAttachmentSubject = o["withAttachmentSubject"].toString(c.withAttachmentSubject);
+    c.withoutAttachmentSubject = o["withoutAttachmentSubject"].toString(c.withoutAttachmentSubject);
+    c.rejectionSubject = o["rejectionSubject"].toString(c.rejectionSubject);
+    for (auto v : o["withAttachmentFiles"].toArray()) c.withAttachmentFiles << v.toString();
+    for (auto v : o["withoutAttachmentFiles"].toArray()) c.withoutAttachmentFiles << v.toString();
+    for (auto v : o["rejectionFiles"].toArray()) c.rejectionFiles << v.toString();
     return c;
 }
 }

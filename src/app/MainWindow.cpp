@@ -3,6 +3,7 @@
 #include "smail/Store.h"
 #include "smail/CredentialStore.h"
 #include "smail/MailClient.h"
+#include "smail/ReplyMessage.h"
 #include <QApplication>
 #include <QCheckBox>
 #include <QCloseEvent>
@@ -17,11 +18,13 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QMenu>
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QScrollArea>
 #include <QSpinBox>
 #include <QStyle>
 #include <QSystemTrayIcon>
@@ -41,6 +44,46 @@ QStringList tokens(QString value) {
         if (!out.contains(item)) out << item;
     }
     return out;
+}
+QStringList filePaths(QListWidget *list) {
+    QStringList result;
+    for (int i = 0; i < list->count(); ++i) result << list->item(i)->text();
+    return result;
+}
+void addReplyEditor(QTabWidget *tabs, const QString &title, QCheckBox *enabled,
+                    QPlainTextEdit *body, QLineEdit *&subject, QListWidget *&files) {
+    auto *page = new QWidget; auto *layout = new QVBoxLayout(page);
+    layout->addWidget(enabled);
+    auto *fields = new QWidget; auto *form = new QVBoxLayout(fields);
+    form->setSizeConstraint(QLayout::SetMinimumSize);
+    form->setContentsMargins(0,0,0,0);
+    form->addWidget(new QLabel("回复主题")); subject = new QLineEdit;
+    subject->setMaxLength(200); form->addWidget(subject);
+    form->addWidget(new QLabel("回复正文")); body->setMinimumHeight(90); body->setMaximumHeight(130); form->addWidget(body);
+    form->addWidget(new QLabel("回复附件（图片、文档等）")); files = new QListWidget;
+    files->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    files->setMinimumHeight(70); files->setMaximumHeight(100); form->addWidget(files);
+    auto *buttons = new QHBoxLayout;
+    auto *add = new QPushButton("添加文件…"); auto *remove = new QPushButton("移除选中");
+    buttons->addWidget(add); buttons->addWidget(remove); form->addLayout(buttons);
+    auto *hint = new QLabel("最多 20 个文件，合计 25 MB。图片作为附件发送。保存文件路径，请勿移动或删除原文件。");
+    hint->setWordWrap(true); form->addWidget(hint);
+    layout->addWidget(fields); layout->addStretch();
+    fields->setEnabled(enabled->isChecked());
+    QObject::connect(enabled, &QCheckBox::toggled, fields, &QWidget::setEnabled);
+    QObject::connect(add, &QPushButton::clicked, page, [page, files] {
+        const auto selected = QFileDialog::getOpenFileNames(page, "选择回复附件", {}, "所有文件 (*);;图片 (*.png *.jpg *.jpeg *.gif *.webp);;文档 (*.pdf *.docx *.xlsx *.pptx *.txt)");
+        auto paths = filePaths(files);
+        for (const auto &path : selected) if (!paths.contains(path)) paths << path;
+        auto error = validateReplyFiles(paths);
+        if (!error.isEmpty()) { QMessageBox::warning(page, "无法添加附件", error); return; }
+        files->clear(); files->addItems(paths);
+        for (int i = 0; i < files->count(); ++i) files->item(i)->setToolTip(files->item(i)->text());
+    });
+    QObject::connect(remove, &QPushButton::clicked, page, [files] {
+        for (auto *item : files->selectedItems()) delete files->takeItem(files->row(item));
+    });
+    tabs->addTab(page, title);
 }
 }
 MainWindow::MainWindow(QString dir) : dataDir(std::move(dir)) {
@@ -80,6 +123,7 @@ MainWindow::MainWindow(QString dir) : dataDir(std::move(dir)) {
     auto *hint = new QLabel("QQ 邮箱：请在网页版设置中开启 IMAP/SMTP 并生成授权码。\n每次开始收取会处理收件箱中未处理过的未读邮件，然后持续收取新邮件；电脑需保持运行和联网。");
     hint->setWordWrap(true); form->addRow(hint); tabs->addTab(account,"1  邮箱设置");
     auto *rules = new QWidget; auto *rulesLayout = new QHBoxLayout(rules);
+    rulesLayout->setSizeConstraint(QLayout::SetMinimumSize);
     rulesLayout->setContentsMargins(16,16,16,16); rulesLayout->setSpacing(16);
     auto *filters = new QGroupBox("附件筛选"); auto *rf = new QFormLayout(filters); rf->setSpacing(14);
     rf->setRowWrapPolicy(QFormLayout::WrapAllRows);
@@ -111,9 +155,10 @@ MainWindow::MainWindow(QString dir) : dataDir(std::move(dir)) {
     withoutAttachmentMessage = new QPlainTextEdit; withoutAttachmentMessage->setFixedHeight(70);
     rf->addRow("快捷选择",presets); rf->addRow("扩展名白名单",extensions); rf->addRow("MIME 白名单",mimeTypes);
     rf->addRow(strict); rf->addRow(inlineImages); rf->addRow("单附件上限",attachmentSize); rf->addRow("整封邮件上限",messageSize);
-    responseLayout->addWidget(withAttachmentReply); responseLayout->addWidget(withAttachmentMessage);
-    responseLayout->addWidget(withoutAttachmentReply); responseLayout->addWidget(withoutAttachmentMessage);
-    responseLayout->addWidget(reply); responseLayout->addWidget(rejection);
+    auto *replyTabs = new QTabWidget; responseLayout->addWidget(replyTabs);
+    addReplyEditor(replyTabs, "有附件", withAttachmentReply, withAttachmentMessage, withAttachmentSubject, withAttachmentFiles);
+    addReplyEditor(replyTabs, "无附件", withoutAttachmentReply, withoutAttachmentMessage, withoutAttachmentSubject, withoutAttachmentFiles);
+    addReplyEditor(replyTabs, "拒收", reply, rejection, rejectionSubject, rejectionFiles);
     auto *ruleHint = new QLabel("有附件仅在保存成功后回复；附件不合规则使用拒收回复。每封邮件最多自动回复一次。\n可用字段：{attachment_count}（已保存数量）、{reason}、{allowed_types}。");
     ruleHint->setWordWrap(true); responseLayout->addWidget(ruleHint);
     auto *safetyHint = new QLabel("自动邮件、列表邮件、自发邮件、no-reply 发件人及整封超限邮件不自动回复。内嵌图片按左侧选项判定。");
@@ -124,7 +169,10 @@ MainWindow::MainWindow(QString dir) : dataDir(std::move(dir)) {
     auto *smtpHint = new QLabel("回复经 SMTP 发送。若测试失败，请检查 VPN/代理（如 Clash 全局模式）或防火墙是否封禁 465 端口。");
     smtpHint->setWordWrap(true); responseLayout->addWidget(smtpHint);
     auto *saveRules = new QPushButton("保存收取规则"); responseLayout->addWidget(saveRules);
-    responseLayout->addStretch(); tabs->addTab(rules,"2  收取规则");
+    responseLayout->addStretch();
+    auto *rulesScroll = new QScrollArea; rulesScroll->setWidgetResizable(true);
+    rulesScroll->setFrameShape(QFrame::NoFrame); rulesScroll->setWidget(rules);
+    tabs->addTab(rulesScroll,"2  收取规则");
     connect(saveRules,&QPushButton::clicked,saveSecret,&QPushButton::click);
     connect(testSmtp,&QPushButton::clicked,this,[this,testSmtp] {
         if (smtpProbe) return;
@@ -242,6 +290,12 @@ void MainWindow::fill(const Config &c) {
     withoutAttachmentMessage->setPlainText(c.withoutAttachmentMessage);
     withAttachmentMessage->setEnabled(c.withAttachmentReply);
     withoutAttachmentMessage->setEnabled(c.withoutAttachmentReply);
+    withAttachmentSubject->setText(c.withAttachmentSubject);
+    withoutAttachmentSubject->setText(c.withoutAttachmentSubject);
+    rejectionSubject->setText(c.rejectionSubject);
+    withAttachmentFiles->clear(); withAttachmentFiles->addItems(c.withAttachmentFiles);
+    withoutAttachmentFiles->clear(); withoutAttachmentFiles->addItems(c.withoutAttachmentFiles);
+    rejectionFiles->clear(); rejectionFiles->addItems(c.rejectionFiles);
 }
 Config MainWindow::readConfig() const {
     Config c; c.email = email->text().trimmed(); c.secret = secret->text();
@@ -255,6 +309,12 @@ Config MainWindow::readConfig() const {
     c.withoutAttachmentReply = withoutAttachmentReply->isChecked();
     c.withAttachmentMessage = withAttachmentMessage->toPlainText();
     c.withoutAttachmentMessage = withoutAttachmentMessage->toPlainText();
+    c.withAttachmentSubject = withAttachmentSubject->text();
+    c.withoutAttachmentSubject = withoutAttachmentSubject->text();
+    c.rejectionSubject = rejectionSubject->text();
+    c.withAttachmentFiles = filePaths(withAttachmentFiles);
+    c.withoutAttachmentFiles = filePaths(withoutAttachmentFiles);
+    c.rejectionFiles = filePaths(rejectionFiles);
     c.maxAttachmentMb = attachmentSize->value(); c.maxMessageMb = messageSize->value(); return c;
 }
 void MainWindow::begin() {

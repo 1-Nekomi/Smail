@@ -4,6 +4,7 @@
 #include "smail/MailClient.h"
 #include "smail/CredentialStore.h"
 #include "smail/ReplyPolicy.h"
+#include "smail/ReplyMessage.h"
 #include <QtTest>
 #include <QTemporaryDir>
 #include <QFile>
@@ -13,6 +14,56 @@ using namespace smail;
 class CoreTest : public QObject {
     Q_OBJECT
 private slots:
+    void replyMimeRoundTripAndValidation() {
+        QTemporaryDir temp;
+        const QString name = QStringLiteral("中文报告及图片说明").repeated(3) + ".pdf";
+        const QString document = temp.filePath(name), picture = temp.filePath("图片.png");
+        const QByteArray binary = QByteArray::fromHex("000102ff0d0a2e0d0a");
+        QFile doc(document); QVERIFY(doc.open(QIODevice::WriteOnly)); doc.write(binary); doc.close();
+        QFile png(picture); QVERIFY(png.open(QIODevice::WriteOnly)); png.write(QByteArray::fromHex("89504e470d0a1a0a")); png.close();
+        const QString subject = QStringLiteral("自定义主题📨").repeated(15);
+        auto wire = composeReply("me@example.com", "you@example.com", subject, "正文\n第二行", {document, picture});
+        auto parsed = parseMessage(wire);
+        QCOMPARE(decodeHeader(parsed.headers.value("subject")), subject);
+        QCOMPARE(parsed.attachments.size(), 2);
+        QCOMPARE(parsed.attachments[0].name, name);
+        QCOMPARE(parsed.attachments[0].data, binary);
+        QCOMPARE(parsed.attachments[1].name, QString("图片.png"));
+        QCOMPARE(parsed.attachments[1].mime, QString("image/png"));
+        for (const auto &line : wire.split('\n')) QVERIFY(line.size() < 998);
+        QVERIFY_EXCEPTION_THROWN(composeReply("me@example.com", "you@example.com", "x\r\nBcc: victim@example.com", "body"), std::runtime_error);
+        QVERIFY_EXCEPTION_THROWN(composeReply("me@example.com", "you@example.com", "title", "body", {temp.filePath("missing")}), std::runtime_error);
+        QVERIFY(!validateReplyFiles({temp.path()}).isEmpty());
+        QFile huge(temp.filePath("huge")); QVERIFY(huge.open(QIODevice::WriteOnly)); QVERIFY(huge.resize(ReplyFilesLimit + 1)); huge.close();
+        QVERIFY(!validateReplyFiles({huge.fileName()}).isEmpty());
+        QVERIFY_EXCEPTION_THROWN(composeReply("me@example.com", "you@example.com", "title", "body", {huge.fileName()}), std::runtime_error);
+        auto plain = parseMessage(composeReply("me@example.com", "you@example.com", "普通主题", "body"));
+        QVERIFY(plain.attachments.isEmpty()); QCOMPARE(decodeHeader(plain.headers.value("subject")), QString("普通主题"));
+    }
+    void replySubjectsAndFilesFollowRuleAndPersist() {
+        Config c; c.email = "me@example.com";
+        c.reply = c.withAttachmentReply = c.withoutAttachmentReply = true;
+        c.withAttachmentSubject = "收到附件"; c.withAttachmentFiles = {"with.pdf"};
+        c.withoutAttachmentSubject = "请补充附件"; c.withoutAttachmentFiles = {"without.png"};
+        c.rejectionSubject = "格式不符"; c.rejectionFiles = {"rejected.docx"};
+        Message m; m.headers["from"] = "sender@example.com";
+        auto plan = planReply(m, selectAttachments(m, c), 0, c);
+        QCOMPARE(plan.subject, c.withoutAttachmentSubject); QCOMPARE(plan.files, c.withoutAttachmentFiles);
+        m.attachments = {{"a.pdf", "application/pdf", "pdf"}};
+        plan = planReply(m, selectAttachments(m, c), 1, c);
+        QCOMPARE(plan.subject, c.withAttachmentSubject); QCOMPARE(plan.files, c.withAttachmentFiles);
+        c.strict = true; m.attachments = {{"a.exe", "application/octet-stream", "exe"}};
+        plan = planReply(m, selectAttachments(m, c), 0, c);
+        QCOMPARE(plan.subject, c.rejectionSubject); QCOMPARE(plan.files, c.rejectionFiles);
+        QTemporaryDir temp; auto path = temp.filePath("settings.json"); c.save(path);
+        auto loaded = Config::load(path);
+        QCOMPARE(loaded.withAttachmentSubject, c.withAttachmentSubject); QCOMPARE(loaded.withAttachmentFiles, c.withAttachmentFiles);
+        QCOMPARE(loaded.withoutAttachmentSubject, c.withoutAttachmentSubject); QCOMPARE(loaded.withoutAttachmentFiles, c.withoutAttachmentFiles);
+        QCOMPARE(loaded.rejectionSubject, c.rejectionSubject); QCOMPARE(loaded.rejectionFiles, c.rejectionFiles);
+        QFile legacy(path); QVERIFY(legacy.open(QIODevice::WriteOnly)); legacy.write("{}"); legacy.close();
+        loaded = Config::load(path);
+        QCOMPARE(loaded.withAttachmentSubject, QString("Smail 附件收取结果")); QVERIFY(loaded.withAttachmentFiles.isEmpty());
+    }
     void startupUnreadSurvivesRestartAndKeepsCursor() {
         QTemporaryDir temp;
         const auto path = temp.path() + "/unread.sqlite";

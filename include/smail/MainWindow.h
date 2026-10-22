@@ -12,6 +12,7 @@ class QLabel;
 class QSystemTrayIcon;
 class QTabWidget;
 class QThread;
+class QListWidget;
 namespace smail {
 class Collector;
 class MainWindow : public QMainWindow {
@@ -30,6 +31,8 @@ private:
     QComboBox *provider;
     QPlainTextEdit *rejection, *log, *history;
     QPlainTextEdit *withAttachmentMessage, *withoutAttachmentMessage;
+    QLineEdit *withAttachmentSubject, *withoutAttachmentSubject, *rejectionSubject;
+    QListWidget *withAttachmentFiles, *withoutAttachmentFiles, *rejectionFiles;
     QPushButton *start, *stop;
     QLabel *status;
     QTabWidget *tabs;

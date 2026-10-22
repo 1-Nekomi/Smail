@@ -2,6 +2,7 @@
 #include "smail/MailClient.h"
 #include "smail/Store.h"
 #include "smail/ReplyPolicy.h"
+#include "smail/ReplyMessage.h"
 #include <algorithm>
 
 namespace smail {
@@ -66,11 +67,15 @@ void Collector::poll() {
             }
             // Persist the result before any external side effect. A crash can suppress a
             // reply, but will not cause duplicate automatic replies.
+            // A missing/unreadable reply file is retryable, not an uncertain SMTP delivery.
+            QByteArray outgoing;
+            if (!response.recipient.isEmpty())
+                outgoing = composeReply(config.email, response.recipient, response.subject, response.body, response.files);
             r.replyState = response.recipient.isEmpty() ? "none" : "attempted";
             store.put(r);
             if (!response.recipient.isEmpty()) {
                 try {
-                    MailClient::sendReply(config, response.recipient, response.body, [this] { return isInterruptionRequested(); });
+                    MailClient::sendPreparedReply(config, response.recipient, outgoing, [this] { return isInterruptionRequested(); });
                     r.replyState = "sent";
                 } catch (const std::exception &e) {
                     r.replyState = "uncertain";
