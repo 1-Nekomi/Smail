@@ -70,7 +70,7 @@ void Collector::poll() {
             // A missing/unreadable reply file is retryable, not an uncertain SMTP delivery.
             QByteArray outgoing;
             if (!response.recipient.isEmpty())
-                outgoing = composeReply(config.email, response.recipient, response.subject, response.body, response.files);
+                outgoing = composeReply(config.email, response.recipient, response.subject, response.body, response.files, response.images);
             r.replyState = response.recipient.isEmpty() ? "none" : "attempted";
             store.put(r);
             if (!response.recipient.isEmpty()) {

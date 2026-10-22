@@ -6,6 +6,7 @@ struct ReplyPlan {
     QString recipient, body, skipReason;
     QString subject;
     QStringList files;
+    QMap<QString, QString> images;
 };
 // Call after saving attachments; savedCount is the number actually written.
 ReplyPlan planReply(const Message &message, const Selection &selection,

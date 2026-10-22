@@ -13,7 +13,7 @@ int main(int argc, char **argv) {
     QApplication app(argc,argv);
     QApplication::setOrganizationName("Smail");
     QApplication::setApplicationName("Smail");
-    QApplication::setApplicationVersion("0.1.5");
+    QApplication::setApplicationVersion("0.1.6");
     QCommandLineParser parser;
     parser.addHelpOption(); parser.addVersionOption();
     parser.addOption({"data-dir", "Override local configuration/state directory.", "directory"});

@@ -5,6 +5,9 @@
 #include "smail/CredentialStore.h"
 #include "smail/ReplyPolicy.h"
 #include "smail/ReplyMessage.h"
+#include "AnimatedGif.h"
+#include <QImageReader>
+#include <QBuffer>
 #include <QtTest>
 #include <QTemporaryDir>
 #include <QFile>
@@ -14,6 +17,45 @@ using namespace smail;
 class CoreTest : public QObject {
     Q_OBJECT
 private slots:
+    void inlineGifKeepsAnimationAndCidReferences() {
+        QTemporaryDir temp;
+        const auto path = temp.filePath("动态图.gif");
+        const auto gif = animatedGif();
+        QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly)); file.write(gif); file.close();
+        QImageReader reader(path); QVERIFY(reader.supportsAnimation()); QCOMPARE(reader.imageCount(), 2);
+        const auto marker = replyImageMarker("test-image");
+        const QMap<QString, QString> images{{"test-image", path}};
+        const auto wire = composeReply("me@example.com", "you@example.com", "动态图", "前文 <script>&\n" + marker + "\n后文", {}, images);
+        QVERIFY(wire.contains("multipart/alternative")); QVERIFY(wire.contains("multipart/related"));
+        QVERIFY(!wire.contains("Content-Disposition: attachment"));
+        QVERIFY(parseMessage(wire).attachments.isEmpty());
+        const auto included = parseMessage(wire, true);
+        QCOMPARE(included.attachments.size(), 1); QCOMPARE(included.attachments[0].mime, QString("image/gif"));
+        QCOMPARE(included.attachments[0].data, gif); // Preserve both frames and timing without transcoding.
+        QRegularExpression htmlPart("Content-Type: text/html[^\\r]*\\r\\nContent-Transfer-Encoding: base64\\r\\n\\r\\n([A-Za-z0-9+/=\\r\\n]+)");
+        const auto match = htmlPart.match(QString::fromLatin1(wire)); QVERIFY(match.hasMatch());
+        const auto html = QByteArray::fromBase64(match.captured(1).toLatin1());
+        QVERIFY(html.contains("&lt;script&gt;&amp;")); QVERIFY(!html.contains("file:"));
+        QRegularExpression cid("Content-ID: <([^>]+)>");
+        const auto id = cid.match(QString::fromLatin1(wire)).captured(1).toLatin1();
+        QVERIFY(!id.isEmpty()); QVERIFY(html.contains("cid:" + id));
+        QVERIFY(html.indexOf("cid:") < html.indexOf(QString("后文").toUtf8()));
+        auto mixed = composeReply("me@example.com", "you@example.com", "both", marker, {path}, images);
+        QVERIFY(mixed.contains("multipart/mixed")); QCOMPARE(parseMessage(mixed).attachments.size(), 1);
+        QCOMPARE(parseMessage(mixed, true).attachments.size(), 2);
+        QVERIFY_EXCEPTION_THROWN(composeReply("me@example.com", "you@example.com", "missing", marker), std::runtime_error);
+        // Removing an image from the body stops validating/sending its stale path.
+        auto plain = composeReply("me@example.com", "you@example.com", "removed", "text", {}, {{"unused", "missing"}});
+        QVERIFY(!plain.contains("multipart/related"));
+        Config c; c.email="me@example.com"; c.secret="dummy"; c.outputDir=temp.path(); c.withoutAttachmentReply=true;
+        c.withoutAttachmentMessage=marker; c.withoutAttachmentImages=images;
+        QVERIFY(c.validate().isEmpty());
+        c.save(temp.filePath("config.json")); const auto loaded=Config::load(temp.filePath("config.json"));
+        QCOMPARE(loaded.withoutAttachmentImages, images);
+        Message incoming; incoming.headers["from"]="you@example.com";
+        QCOMPARE(planReply(incoming,selectAttachments(incoming,c),0,c).images, images);
+        c.withoutAttachmentImages.clear(); QVERIFY(!c.validate().isEmpty());
+    }
     void replyMimeRoundTripAndValidation() {
         QTemporaryDir temp;
         const QString name = QStringLiteral("中文报告及图片说明").repeated(3) + ".pdf";

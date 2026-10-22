@@ -35,6 +35,20 @@ QString Config::validate() const {
         if (!QRegularExpression("^[a-z0-9]+$").match(ext).hasMatch()) return QStringLiteral("扩展名应为 pdf、docx 等，用逗号分隔。");
     for (const auto &mime : mimeTypes)
         if (!QRegularExpression("^[a-z0-9.+-]+/([a-z0-9.+-]+|\\*)$").match(mime).hasMatch()) return QStringLiteral("MIME 类型格式应为 image/* 或 application/pdf。");
+    try {
+        for (const auto &item : {std::make_tuple(withAttachmentReply, withAttachmentMessage, withAttachmentFiles, withAttachmentImages),
+                                std::make_tuple(withoutAttachmentReply, withoutAttachmentMessage, withoutAttachmentFiles, withoutAttachmentImages),
+                                std::make_tuple(reply, rejection, rejectionFiles, rejectionImages)}) {
+            if (!std::get<0>(item)) continue;
+            auto images = referencedReplyImages(std::get<1>(item), std::get<3>(item));
+            auto error = validateReplyFiles(std::get<2>(item) + images.values());
+            if (!error.isEmpty()) return error;
+            for (const auto &path : images) {
+                error = validateReplyImage(path);
+                if (!error.isEmpty()) return error;
+            }
+        }
+    } catch (const std::exception &e) { return QString::fromUtf8(e.what()); }
     return {};
 }
 QString Config::accountKey() const {
@@ -55,6 +69,14 @@ void Config::save(const QString &path) const {
         {"rejectionSubject", rejectionSubject}, {"withAttachmentFiles", QJsonArray::fromStringList(withAttachmentFiles)},
         {"withoutAttachmentFiles", QJsonArray::fromStringList(withoutAttachmentFiles)},
         {"rejectionFiles", QJsonArray::fromStringList(rejectionFiles)}};
+    auto imageObject = [](const QMap<QString, QString> &images) {
+        QJsonObject result;
+        for (auto it = images.begin(); it != images.end(); ++it) result[it.key()] = it.value();
+        return result;
+    };
+    o["withAttachmentImages"] = imageObject(withAttachmentImages);
+    o["withoutAttachmentImages"] = imageObject(withoutAttachmentImages);
+    o["rejectionImages"] = imageObject(rejectionImages);
     QSaveFile f(path);
     const auto data = QJsonDocument(o).toJson();
     if (!f.open(QIODevice::WriteOnly) || f.write(data) != data.size() || !f.commit()) fail("无法保存配置");
@@ -89,6 +111,14 @@ Config Config::load(const QString &path) {
     for (auto v : o["withAttachmentFiles"].toArray()) c.withAttachmentFiles << v.toString();
     for (auto v : o["withoutAttachmentFiles"].toArray()) c.withoutAttachmentFiles << v.toString();
     for (auto v : o["rejectionFiles"].toArray()) c.rejectionFiles << v.toString();
+    auto imageMap = [](const QJsonObject &object) {
+        QMap<QString, QString> result;
+        for (auto it = object.begin(); it != object.end(); ++it) result[it.key()] = it.value().toString();
+        return result;
+    };
+    c.withAttachmentImages = imageMap(o["withAttachmentImages"].toObject());
+    c.withoutAttachmentImages = imageMap(o["withoutAttachmentImages"].toObject());
+    c.rejectionImages = imageMap(o["rejectionImages"].toObject());
     return c;
 }
 }

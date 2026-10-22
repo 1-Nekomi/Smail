@@ -51,8 +51,14 @@ ReplyPolicy 按处理结果互斥选择：成功保存附件 / 无附件 / 附�
 每类回复独立保存主题及本地附件路径。ReplyMessage 在记录 attempted 前完整校验并组装邮件，
 文件缺失等本地错误保持可重试；SMTP 接收结果不明仍不自动重发。
 正文和附件使用 MIME Base64，中文主题分段编码，附件文件名用 RFC 2231 延续参数；
-图片按 attachment 发送。出站最多 20 个文件、原始总量 25 MB，与入站筛选独立。
+普通附件按 attachment 发送。出站最多 20 个文件、原始总量 25 MB，与入站筛选独立。
 格式依据：[RFC 2045](https://www.rfc-editor.org/rfc/rfc2045)、[RFC 2231](https://www.rfc-editor.org/rfc/rfc2231)。
+ReplyBodyEditor 用 QTextEdit 内嵌对象显示图片，持久化为正文中的稳定图片引用及 ID→本地路径映射。
+仅保存仍在正文引用的图片，保留删除/撤销语义；粘贴外部内容按纯文本处理。
+发送结构为可选 multipart/mixed（正文 + 普通附件），正文为 multipart/alternative
+（纯文本 + multipart/related（HTML + Content-ID 图片））。文本先 HTML 转义，
+图片用 inline disposition 与 cid URL 关联，不引用 file URL 或远程 URL。
+依据：[RFC 2392](https://www.rfc-editor.org/rfc/rfc2392)。PNG/JPEG/GIF 校验后原样发送，GIF 不转码，保留动画。
 拒收表示客户端拒绝保存，非服务器投递退信。模板支持 `{reason}`、`{allowed_types}`、`{attachment_count}`。
 禁止回复自动邮件、列表邮件、自己与 no-reply 发件人，避免循环。
 只回复 From 中单个合法邮箱，不使用任意 Reply-To。

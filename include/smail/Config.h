@@ -1,6 +1,7 @@
 #pragma once
 #include <QString>
 #include <QStringList>
+#include <QMap>
 #include <stdexcept>
 
 namespace smail {
@@ -22,6 +23,7 @@ struct Config {
     QString withoutAttachmentSubject = QStringLiteral("Smail 附件收取结果");
     QString rejectionSubject = QStringLiteral("Smail 附件收取结果");
     QStringList withAttachmentFiles, withoutAttachmentFiles, rejectionFiles;
+    QMap<QString, QString> withAttachmentImages, withoutAttachmentImages, rejectionImages;
     QString validate() const;
     QString accountKey() const;
     void save(const QString &path) const;

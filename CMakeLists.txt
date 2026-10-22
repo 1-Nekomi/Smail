@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(Smail VERSION 0.1.5 LANGUAGES CXX)
+project(Smail VERSION 0.1.6 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
@@ -9,12 +9,12 @@ add_library(smail_core
     src/core/Config.cpp src/core/Mime.cpp src/core/Store.cpp src/core/CredentialStore.cpp src/core/ReplyPolicy.cpp src/core/ReplyMessage.cpp
     src/net/MailClient.cpp src/net/TlsConnection.cpp)
 target_include_directories(smail_core PUBLIC include)
-target_link_libraries(smail_core PUBLIC Qt6::Core Qt6::Network Qt6::Sql)
+target_link_libraries(smail_core PUBLIC Qt6::Core Qt6::Network Qt6::Sql Qt6::Gui)
 if(WIN32)
     target_link_libraries(smail_core PRIVATE crypt32)
 endif()
 add_executable(Smail WIN32
-    src/app/main.cpp src/app/MainWindow.cpp src/app/Collector.cpp
+    src/app/main.cpp src/app/MainWindow.cpp src/app/Collector.cpp src/app/ReplyBodyEditor.cpp
     include/smail/MainWindow.h include/smail/Collector.h)
 target_link_libraries(Smail PRIVATE smail_core Qt6::Widgets)
 if(MSVC)
@@ -41,5 +41,9 @@ if(BUILD_TESTING)
     target_compile_definitions(smail_smtp_tests PRIVATE FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/qt/fixtures")
     target_link_libraries(smail_smtp_tests PRIVATE smail_core Qt6::Test)
     add_test(NAME smail_smtp COMMAND smail_smtp_tests)
+    add_executable(smail_editor_tests tests/qt/ReplyEditorTest.cpp src/app/ReplyBodyEditor.cpp)
+    target_link_libraries(smail_editor_tests PRIVATE smail_core Qt6::Widgets Qt6::Test)
+    add_test(NAME smail_editor COMMAND smail_editor_tests)
+    set_tests_properties(smail_editor PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 install(TARGETS Smail RUNTIME DESTINATION bin)

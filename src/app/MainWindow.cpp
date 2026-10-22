@@ -4,6 +4,7 @@
 #include "smail/CredentialStore.h"
 #include "smail/MailClient.h"
 #include "smail/ReplyMessage.h"
+#include "smail/ReplyBodyEditor.h"
 #include <QApplication>
 #include <QCheckBox>
 #include <QCloseEvent>
@@ -51,7 +52,7 @@ QStringList filePaths(QListWidget *list) {
     return result;
 }
 void addReplyEditor(QTabWidget *tabs, const QString &title, QCheckBox *enabled,
-                    QPlainTextEdit *body, QLineEdit *&subject, QListWidget *&files) {
+                    ReplyBodyEditor *body, QLineEdit *&subject, QListWidget *&files) {
     auto *page = new QWidget; auto *layout = new QVBoxLayout(page);
     layout->addWidget(enabled);
     auto *fields = new QWidget; auto *form = new QVBoxLayout(fields);
@@ -59,14 +60,25 @@ void addReplyEditor(QTabWidget *tabs, const QString &title, QCheckBox *enabled,
     form->setContentsMargins(0,0,0,0);
     form->addWidget(new QLabel("回复主题")); subject = new QLineEdit;
     subject->setMaxLength(200); form->addWidget(subject);
-    form->addWidget(new QLabel("回复正文")); body->setMinimumHeight(90); body->setMaximumHeight(130); form->addWidget(body);
+    auto *bodyTools = new QHBoxLayout;
+    bodyTools->addWidget(new QLabel("回复正文"));
+    auto *insertImage = new QPushButton("插入正文图片…"); bodyTools->addWidget(insertImage); form->addLayout(bodyTools);
+    body->setMinimumHeight(150); body->setMaximumHeight(180); form->addWidget(body);
+    auto *imageHint = new QLabel("在光标位置插图，选中图片后按 Delete 删除。支持 PNG、JPEG、GIF；请保留原文件。");
+    imageHint->setWordWrap(true); form->addWidget(imageHint);
+    QObject::connect(insertImage, &QPushButton::clicked, page, [page, body] {
+        const auto path = QFileDialog::getOpenFileName(page, "插入正文图片", {}, "图片 (*.png *.jpg *.jpeg *.gif)");
+        if (path.isEmpty()) return;
+        try { body->insertLocalImage(path); body->setFocus(); }
+        catch (const std::exception &e) { QMessageBox::warning(page, "无法插入图片", QString::fromUtf8(e.what())); }
+    });
     form->addWidget(new QLabel("回复附件（图片、文档等）")); files = new QListWidget;
     files->setSelectionMode(QAbstractItemView::ExtendedSelection);
     files->setMinimumHeight(70); files->setMaximumHeight(100); form->addWidget(files);
     auto *buttons = new QHBoxLayout;
     auto *add = new QPushButton("添加文件…"); auto *remove = new QPushButton("移除选中");
     buttons->addWidget(add); buttons->addWidget(remove); form->addLayout(buttons);
-    auto *hint = new QLabel("最多 20 个文件，合计 25 MB。图片作为附件发送。保存文件路径，请勿移动或删除原文件。");
+    auto *hint = new QLabel("正文图片和附件合计最多 20 个、25 MB。此列表的文件作为普通附件发送；请保留原文件。");
     hint->setWordWrap(true); form->addWidget(hint);
     layout->addWidget(fields); layout->addStretch();
     fields->setEnabled(enabled->isChecked());
@@ -148,11 +160,11 @@ MainWindow::MainWindow(QString dir) : dataDir(std::move(dir)) {
     attachmentSize = spin(1,200); attachmentSize->setSuffix(" MB");
     messageSize = spin(1,200); messageSize->setSuffix(" MB");
     reply = new QCheckBox("拒收时自动向发件人回复");
-    rejection = new QPlainTextEdit; rejection->setFixedHeight(70);
+    rejection = new ReplyBodyEditor;
     withAttachmentReply = new QCheckBox("有附件：收取成功后自动回复");
     withoutAttachmentReply = new QCheckBox("无附件：自动回复");
-    withAttachmentMessage = new QPlainTextEdit; withAttachmentMessage->setFixedHeight(70);
-    withoutAttachmentMessage = new QPlainTextEdit; withoutAttachmentMessage->setFixedHeight(70);
+    withAttachmentMessage = new ReplyBodyEditor;
+    withoutAttachmentMessage = new ReplyBodyEditor;
     rf->addRow("快捷选择",presets); rf->addRow("扩展名白名单",extensions); rf->addRow("MIME 白名单",mimeTypes);
     rf->addRow(strict); rf->addRow(inlineImages); rf->addRow("单附件上限",attachmentSize); rf->addRow("整封邮件上限",messageSize);
     auto *replyTabs = new QTabWidget; responseLayout->addWidget(replyTabs);
@@ -281,13 +293,13 @@ void MainWindow::fill(const Config &c) {
     output->setText(c.outputDir.isEmpty() ? QDir::homePath()+"/Downloads/Smail" : c.outputDir);
     interval->setValue(c.interval); extensions->setText(c.extensions.join(","));
     mimeTypes->setText(c.mimeTypes.join(",")); strict->setChecked(c.strict); inlineImages->setChecked(c.inlineImages);
-    existing->setChecked(c.includeExisting); reply->setChecked(c.reply); rejection->setPlainText(c.rejection);
+    existing->setChecked(c.includeExisting); reply->setChecked(c.reply); rejection->setBody(c.rejection, c.rejectionImages);
     rejection->setEnabled(c.reply); attachmentSize->setValue(c.maxAttachmentMb); messageSize->setValue(c.maxMessageMb);
     rememberSecret->setChecked(CredentialStore::supported() && c.rememberSecret);
     withAttachmentReply->setChecked(c.withAttachmentReply);
     withoutAttachmentReply->setChecked(c.withoutAttachmentReply);
-    withAttachmentMessage->setPlainText(c.withAttachmentMessage);
-    withoutAttachmentMessage->setPlainText(c.withoutAttachmentMessage);
+    withAttachmentMessage->setBody(c.withAttachmentMessage, c.withAttachmentImages);
+    withoutAttachmentMessage->setBody(c.withoutAttachmentMessage, c.withoutAttachmentImages);
     withAttachmentMessage->setEnabled(c.withAttachmentReply);
     withoutAttachmentMessage->setEnabled(c.withoutAttachmentReply);
     withAttachmentSubject->setText(c.withAttachmentSubject);
@@ -303,12 +315,14 @@ Config MainWindow::readConfig() const {
     c.imapPort = imapPort->value(); c.smtpPort = smtpPort->value(); c.outputDir = QDir(output->text().trimmed()).absolutePath();
     c.interval = interval->value(); c.extensions = tokens(extensions->text()); c.mimeTypes = tokens(mimeTypes->text());
     c.strict = strict->isChecked(); c.inlineImages = inlineImages->isChecked(); c.includeExisting = existing->isChecked();
-    c.reply = reply->isChecked(); c.rejection = rejection->toPlainText();
+    c.reply = reply->isChecked(); c.rejection = rejection->bodyText(); c.rejectionImages = rejection->imagePaths();
     c.rememberSecret = rememberSecret->isChecked();
     c.withAttachmentReply = withAttachmentReply->isChecked();
     c.withoutAttachmentReply = withoutAttachmentReply->isChecked();
-    c.withAttachmentMessage = withAttachmentMessage->toPlainText();
-    c.withoutAttachmentMessage = withoutAttachmentMessage->toPlainText();
+    c.withAttachmentMessage = withAttachmentMessage->bodyText();
+    c.withoutAttachmentMessage = withoutAttachmentMessage->bodyText();
+    c.withAttachmentImages = withAttachmentMessage->imagePaths();
+    c.withoutAttachmentImages = withoutAttachmentMessage->imagePaths();
     c.withAttachmentSubject = withAttachmentSubject->text();
     c.withoutAttachmentSubject = withoutAttachmentSubject->text();
     c.rejectionSubject = rejectionSubject->text();

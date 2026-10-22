@@ -15,6 +15,7 @@ class QThread;
 class QListWidget;
 namespace smail {
 class Collector;
+class ReplyBodyEditor;
 class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
@@ -29,8 +30,8 @@ private:
     QCheckBox *strict, *inlineImages, *existing, *reply, *rememberSecret;
     QCheckBox *withAttachmentReply, *withoutAttachmentReply;
     QComboBox *provider;
-    QPlainTextEdit *rejection, *log, *history;
-    QPlainTextEdit *withAttachmentMessage, *withoutAttachmentMessage;
+    QPlainTextEdit *log, *history;
+    ReplyBodyEditor *rejection, *withAttachmentMessage, *withoutAttachmentMessage;
     QLineEdit *withAttachmentSubject, *withoutAttachmentSubject, *rejectionSubject;
     QListWidget *withAttachmentFiles, *withoutAttachmentFiles, *rejectionFiles;
     QPushButton *start, *stop;

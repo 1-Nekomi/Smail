@@ -2,6 +2,8 @@
 #include "smail/ReplyPolicy.h"
 #include "smail/Collector.h"
 #include "smail/Store.h"
+#include "smail/ReplyMessage.h"
+#include "AnimatedGif.h"
 #include <QTemporaryDir>
 #include <QtTest>
 #include <QSslServer>
@@ -185,6 +187,11 @@ private slots:
         const QByteArray replyBytes = QByteArray::fromHex("89504e470d0a1a0a0000ff");
         replyFile.write(replyBytes); replyFile.close();
         c.withAttachmentFiles = c.withoutAttachmentFiles = {replyFile.fileName()};
+        QFile gifFile(temp.filePath("正文动图.gif")); QVERIFY(gifFile.open(QIODevice::WriteOnly));
+        gifFile.write(animatedGif()); gifFile.close();
+        c.withAttachmentImages = c.withoutAttachmentImages = {{"inline-gif", gifFile.fileName()}};
+        c.withAttachmentMessage += smail::replyImageMarker("inline-gif");
+        c.withoutAttachmentMessage += smail::replyImageMarker("inline-gif");
         const QString path = temp.path() + "/history.sqlite";
         // accountKey includes the port, so populate history after the listener starts.
         QSslServer imap;
@@ -265,6 +272,12 @@ private slots:
             QCOMPARE(parsed.attachments.size(), 1);
             QCOMPARE(parsed.attachments[0].name, QString("说明图片.png"));
             QCOMPARE(parsed.attachments[0].data, replyBytes);
+            QVERIFY(smtp.messages[i].contains("Content-Disposition: inline"));
+            QVERIFY(smtp.messages[i].contains("multipart/related"));
+            auto allParts = smail::parseMessage(smtp.messages[i], true);
+            QCOMPARE(allParts.attachments.size(), 2);
+            QCOMPARE(allParts.attachments[0].mime, QString("image/gif"));
+            QCOMPARE(allParts.attachments[0].data, animatedGif());
         }
         QVERIFY(unexpected.isEmpty());
         smail::Store store(path);
