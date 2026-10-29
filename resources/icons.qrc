@@ -1,0 +1,7 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/icons">
+        <file alias="smail.ico">../assets/smail.ico</file>
+        <file alias="smail_under.ico">../assets/smail_under.ico</file>
+    </qresource>
+</RCC>

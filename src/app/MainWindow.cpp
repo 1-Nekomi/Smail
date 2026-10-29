@@ -27,7 +27,7 @@
 #include <QRegularExpression>
 #include <QScrollArea>
 #include <QSpinBox>
-#include <QStyle>
+#include <QIcon>
 #include <QSystemTrayIcon>
 #include <QTabWidget>
 #include <QThread>
@@ -100,7 +100,7 @@ void addReplyEditor(QTabWidget *tabs, const QString &title, QCheckBox *enabled,
 }
 MainWindow::MainWindow(QString dir) : dataDir(std::move(dir)) {
     setWindowTitle("Smail · 邮件附件收取"); resize(840, 760);
-    setWindowIcon(style()->standardIcon(QStyle::SP_DriveNetIcon));
+    setWindowIcon(QIcon(QStringLiteral(":/icons/smail.ico")));
     auto *central = new QWidget; auto *layout = new QVBoxLayout(central);
     layout->setContentsMargins(24,20,24,20); layout->setSpacing(14);
     auto *title = new QLabel("Smail  附件收件箱");
@@ -232,7 +232,7 @@ MainWindow::MainWindow(QString dir) : dataDir(std::move(dir)) {
     start->setStyleSheet("background:#246bce;color:white;font-weight:600;padding:9px 22px;border-radius:5px;");
     stop->setEnabled(false); buttons->addWidget(open); buttons->addWidget(start); buttons->addWidget(stop); layout->addLayout(buttons);
     setCentralWidget(central);
-    tray = new QSystemTrayIcon(windowIcon(),this); tray->setToolTip("Smail 邮件附件收取");
+    tray = new QSystemTrayIcon(QIcon(QStringLiteral(":/icons/smail_under.ico")),this); tray->setToolTip("Smail 邮件附件收取");
     auto *menu = new QMenu(this);
     menu->addAction("显示窗口",this,[this] { showNormal(); raise(); activateWindow(); });
     menu->addAction("退出",qApp,&QApplication::quit); tray->setContextMenu(menu);

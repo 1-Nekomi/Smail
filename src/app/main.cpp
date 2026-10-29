@@ -1,6 +1,7 @@
 #include "smail/MainWindow.h"
 #include <QApplication>
 #include <QDir>
+#include <QIcon>
 #include <QLockFile>
 #include <QMessageBox>
 #include <QStandardPaths>
@@ -11,6 +12,7 @@
 
 int main(int argc, char **argv) {
     QApplication app(argc,argv);
+    QApplication::setWindowIcon(QIcon(QStringLiteral(":/icons/smail.ico")));
     QApplication::setOrganizationName("Smail");
     QApplication::setApplicationName("Smail");
     QApplication::setApplicationVersion("0.1.6");
