@@ -15,7 +15,7 @@ int main(int argc, char **argv) {
     QApplication::setWindowIcon(QIcon(QStringLiteral(":/icons/smail.ico")));
     QApplication::setOrganizationName("Smail");
     QApplication::setApplicationName("Smail");
-    QApplication::setApplicationVersion("0.1.6");
+    QApplication::setApplicationVersion("0.1.7");
     QCommandLineParser parser;
     parser.addHelpOption(); parser.addVersionOption();
     parser.addOption({"data-dir", "Override local configuration/state directory.", "directory"});

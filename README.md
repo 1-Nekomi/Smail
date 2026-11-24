@@ -7,7 +7,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6?logo=windows&logoColor=white)
 ![Qt](https://img.shields.io/badge/Qt-6.5%2B-41CD52?logo=qt&logoColor=white)
 ![C++](https://img.shields.io/badge/C%2B%2B-17-00599C?logo=cplusplus&logoColor=white)
-![Version](https://img.shields.io/badge/version-0.1.6-informational)
+![Version](https://img.shields.io/badge/version-0.1.7-informational)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 
 <p align="center"><img src="assets/smail.jpeg" alt="Smail application icon" width="120"></p>
@@ -43,8 +43,8 @@ A typical use case: receive homework, reports, images, or log files in a QQ Mail
 2. (Recommended) Verify the file. Both commands below should print the same hash:
 
    ```powershell
-   Get-FileHash .\Smail-0.1.6-windows-x64-setup.exe -Algorithm SHA256
-   Get-Content .\Smail-0.1.6-windows-x64-setup.exe.sha256
+   Get-FileHash .\Smail-0.1.7-windows-x64-setup.exe -Algorithm SHA256
+   Get-Content .\Smail-0.1.7-windows-x64-setup.exe.sha256
    ```
 
 3. Run the installer. It installs for the current user only, requires no administrator rights, defaults to `%LOCALAPPDATA%\Programs\Smail`, and creates desktop and Start-menu shortcuts.
@@ -58,8 +58,8 @@ A typical use case: receive homework, reports, images, or log files in a QQ Mail
 2. (Recommended) Verify the archive with the matching `.zip.sha256` file:
 
    ```powershell
-   Get-FileHash .\Smail-0.1.6-windows-x64-portable.zip -Algorithm SHA256
-   Get-Content .\Smail-0.1.6-windows-x64-portable.zip.sha256
+   Get-FileHash .\Smail-0.1.7-windows-x64-portable.zip -Algorithm SHA256
+   Get-Content .\Smail-0.1.7-windows-x64-portable.zip.sha256
    ```
 
 3. Extract the archive to a writable folder (for example `D:\Apps\Smail`), then run `Smail.exe` from the extracted `Smail` folder. The archive already contains the Qt runtime and required plugins; no separate installation is needed.

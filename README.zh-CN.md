@@ -7,7 +7,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6?logo=windows&logoColor=white)
 ![Qt](https://img.shields.io/badge/Qt-6.5%2B-41CD52?logo=qt&logoColor=white)
 ![C++](https://img.shields.io/badge/C%2B%2B-17-00599C?logo=cplusplus&logoColor=white)
-![Version](https://img.shields.io/badge/version-0.1.6-informational)
+![Version](https://img.shields.io/badge/version-0.1.7-informational)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 
 <p align="center"><img src="assets/smail.jpeg" alt="Smail 应用图标" width="120"></p>
@@ -43,8 +43,8 @@ Smail 是一个基于 **Qt 6 Widgets / C++17** 的 Windows 桌面程序。它会
 2. （推荐）核对文件完整性，两个命令输出的哈希应一致：
 
    ```powershell
-   Get-FileHash .\Smail-0.1.6-windows-x64-setup.exe -Algorithm SHA256
-   Get-Content .\Smail-0.1.6-windows-x64-setup.exe.sha256
+   Get-FileHash .\Smail-0.1.7-windows-x64-setup.exe -Algorithm SHA256
+   Get-Content .\Smail-0.1.7-windows-x64-setup.exe.sha256
    ```
 
 3. 双击安装包，按向导完成安装。安装仅作用于当前用户，无需管理员权限，默认安装到 `%LOCALAPPDATA%\Programs\Smail`，并创建桌面和开始菜单快捷方式。
@@ -58,8 +58,8 @@ Smail 是一个基于 **Qt 6 Widgets / C++17** 的 Windows 桌面程序。它会
 2. （推荐）使用同名的 `.zip.sha256` 文件核对压缩包完整性：
 
    ```powershell
-   Get-FileHash .\Smail-0.1.6-windows-x64-portable.zip -Algorithm SHA256
-   Get-Content .\Smail-0.1.6-windows-x64-portable.zip.sha256
+   Get-FileHash .\Smail-0.1.7-windows-x64-portable.zip -Algorithm SHA256
+   Get-Content .\Smail-0.1.7-windows-x64-portable.zip.sha256
    ```
 
 3. 将压缩包解压到可写目录（例如 `D:\Apps\Smail`），然后运行解压出的 `Smail` 文件夹中的 `Smail.exe`。压缩包已包含 Qt 运行库和所需插件，无需额外安装。
